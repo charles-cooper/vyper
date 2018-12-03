@@ -239,7 +239,7 @@ right address, the correct checksummed form is: %s""" % checksum_encode(orignum)
                 return sub
             if not isinstance(sub.typ, StructType):
                 raise TypeMismatchException("Type mismatch: member variable access not expected", self.expr.value)
-            attrs = sorted(sub.typ.members.keys())
+            attrs = list(sub.typ.members.keys())
             if self.expr.attr not in attrs:
                 raise TypeMismatchException("Member %s not found. Only the following available: %s" % (self.expr.attr, " ".join(attrs)), self.expr)
             return add_variable_offset(sub, self.expr.attr, pos=getpos(self.expr))
@@ -322,7 +322,7 @@ right address, the correct checksummed form is: %s""" % checksum_encode(orignum)
 
         ltyp, rtyp = left.typ.typ, right.typ.typ
         if isinstance(self.expr.op, (ast.Add, ast.Sub)):
-            if left.typ.unit != right.typ.unit and left.typ.unit is not None and right.typ.unit is not None:
+            if left.typ.unit != right.typ.unit and left.typ.unit and right.typ.unit:
                 raise TypeMismatchException("Unit mismatch: %r %r" % (left.typ.unit, right.typ.unit), self.expr)
             if left.typ.positional and right.typ.positional and isinstance(self.expr.op, ast.Add):
                 raise TypeMismatchException("Cannot add two positional units!", self.expr)
@@ -680,8 +680,9 @@ right address, the correct checksummed form is: %s""" % checksum_encode(orignum)
 
             # Struct constructors do not need `self` prefix.
             elif function_name in self.context.structs:
-                if not self.context.in_assignment:
-                    raise StructureException("Struct constructor must be called in RHS of assignment.")
+                # Can also be called in return statement...
+                #if not self.context.in_assignment and not self.context.:
+                #    raise StructureException("Struct constructor must be called in RHS of assignment.", self.expr)
                 args = self.expr.args
                 if len(args) != 1:
                     raise StructureException("Struct constructor is called with one argument only")
@@ -754,7 +755,7 @@ right address, the correct checksummed form is: %s""" % checksum_encode(orignum)
                 raise TypeMismatchException("Member variable duplicated: " + key.id, key)
             o[key.id] = Expr(value, self.context).lll_node
             members[key.id] = o[key.id].typ
-        return LLLnode.from_list(["multi"] + [o[key] for key in sorted(list(o.keys()))], typ=StructType(members, None), pos=getpos(self.expr))
+        return LLLnode.from_list(["multi"] + [o[key] for key in list(o.keys())], typ=StructType(members, None), pos=getpos(self.expr))
 
     def tuple_literals(self):
         if not len(self.expr.elts):

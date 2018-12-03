@@ -99,9 +99,9 @@ class NodeType(abc.ABC):
 
 # Data structure for a type that represents a 32-byte object
 class BaseType(NodeType):
-    def __init__(self, typ, unit=False, positional=False, override_signature=False, is_literal=False):
+    def __init__(self, typ, unit=None, positional=False, override_signature=False, is_literal=False):
         self.typ = typ
-        self.unit = {} if unit is False else unit
+        self.unit = {} if not unit else unit
         self.positional = positional
         self.override_signature = override_signature
         self.is_literal = is_literal
@@ -111,7 +111,7 @@ class BaseType(NodeType):
 
     def __repr__(self):
         subs = []
-        if self.unit != {}:
+        if self.unit:
             subs.append(print_unit(self.unit))
         if self.positional:
             subs.append('positional')
@@ -163,9 +163,15 @@ class MappingType(NodeType):
         return 'map(' + repr(self.valuetype) + ', ' + repr(self.keytype) + ')'
 
 
+# Type which has heterogeneous members, i.e. Tuples and Structs
+class TupleLike(NodeType):
+    def get_tuple_members(self):
+        raise NotImplementedError("compiler panic!: get_tuple_members must be implemented by TupleLike")
+
+
 # Data structure for a struct, e.g. {a: <type>, b: <type>}
 # struct can be named or anonymous. name=None indicates anonymous.
-class StructType(NodeType):
+class StructType(TupleLike):
     def __init__(self, members, name):
         self.members = copy.copy(members)
         self.name = name
@@ -177,9 +183,12 @@ class StructType(NodeType):
         prefix = 'struct ' + self.name + ': ' if self.name else ''
         return prefix + '{' + ', '.join([k + ': ' + repr(v) for k, v in self.members.items()]) + '}'
 
+    def get_tuple_members(self):
+        return list(self.members.values())
+
 
 # Data structure for a list with heterogeneous types, e.g. [int128, bytes32, bytes]
-class TupleType(NodeType):
+class TupleType(TupleLike):
     def __init__(self, members):
         self.members = copy.copy(members)
 
@@ -188,6 +197,9 @@ class TupleType(NodeType):
 
     def __repr__(self):
         return '(' + ', '.join([repr(m) for m in self.members]) + ')'
+
+    def get_tuple_members(self):
+        return self.members
 
 
 # Data structure for the type used by None/null
@@ -208,13 +220,10 @@ def canonicalize_type(t, is_indexed=False):
         if not isinstance(t.subtype, (ListType, BaseType)):
             raise Exception("List of byte arrays not allowed")
         return canonicalize_type(t.subtype) + "[%d]" % t.count
-    if isinstance(t, TupleType):
+    if isinstance(t, TupleLike):
         return "({})".format(
-            ",".join(canonicalize_type(x) for x in t.members)
+            ",".join(canonicalize_type(x) for x in t.get_tuple_members())
         )
-    if isinstance(t, StructType):
-        # TODO: VIP1019
-        raise InvalidTypeException("Structs are not allowed in events, or as args or return values from functions yet (see VIP1019)", t)
     if not isinstance(t, BaseType):
         raise Exception("Cannot canonicalize non-base type: %r" % t)
 
@@ -372,10 +381,8 @@ def get_size_of_type(typ):
         return get_size_of_type(typ.subtype) * typ.count
     elif isinstance(typ, MappingType):
         raise Exception("Maps are not supported for function arguments or outputs.")
-    elif isinstance(typ, StructType):
-        return sum([get_size_of_type(v) for v in typ.members.values()])
-    elif isinstance(typ, TupleType):
-        return sum([get_size_of_type(v) for v in typ.members])
+    elif isinstance(typ, TupleLike):
+        return sum([get_size_of_type(v) for v in typ.get_tuple_members()])
     else:
         raise Exception("Unexpected type: %r" % repr(typ))
 
