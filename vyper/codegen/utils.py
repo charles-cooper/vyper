@@ -25,6 +25,7 @@ from vyper.parser.parser_utils import (
     make_byte_array_copier,
     make_setter,
     unwrap_location,
+    add_variable_offset,
 )
 
 
@@ -68,6 +69,7 @@ def make_return_stmt(stmt, context, begin_pos, _size, loop_memory_position=None)
 
 # Generate code for returning a tuple or struct.
 def gen_tuple_return(stmt, context, sub):
+    pos = getpos(stmt)
     # Is from a call expression.
     if sub.args and len(sub.args[0].args) > 0 and sub.args[0].args[0].value == 'call':  # self-call to public.
         mem_pos = sub.args[0].args[-1]
@@ -85,7 +87,7 @@ def gen_tuple_return(stmt, context, sub):
             zero_padder = zero_pad(bytez_placeholder=['add', mem_pos, ['mload', mem_pos + i * 32]], maxlen=x.maxlen)
         return LLLnode.from_list(
             ['seq'] + [sub] + [zero_padder] + [make_return_stmt(stmt, context, mem_pos, mem_size)
-        ], typ=sub.typ, pos=getpos(stmt), valency=0)
+        ], typ=sub.typ, pos=pos, valency=0)
 
     subs = []
     # Pre-allocate loop_memory_position if required for private function returning.
@@ -122,17 +124,11 @@ def gen_tuple_return(stmt, context, sub):
 
             # Store dynamic data, from offset pointer onwards.
             dynamic_spot = LLLnode.from_list(['add', left_token, get_dynamic_offset_value()], location="memory", typ=arg.typ, annotation='dynamic_spot')
-            subs.append(make_setter(dynamic_spot, arg, location="memory", pos=getpos(stmt)))
+            subs.append(make_setter(dynamic_spot, arg, location="memory", pos=pos))
             subs.append(increment_dynamic_offset(dynamic_spot))
 
-        elif isinstance(arg.typ, BaseType):
-            subs.append(make_setter(variable_offset, arg, "memory", pos=getpos(stmt)))
-        elif isinstance(arg.typ, TupleLike):
-            subs.append(gen_tuple_return(stmt, context, arg))
         else:
-        # Maybe this should panic because the type error should be
-        # caught at an earlier type-checking stage.
-            raise TypeMismatchException("Can't return type %s as part of tuple"% arg.typ, stmt)
+            subs.append(make_setter(variable_offset, arg), "memory", pos=pos)
 
     setter = LLLnode.from_list(
         ['seq',
@@ -145,5 +141,5 @@ def gen_tuple_return(stmt, context, sub):
         ['seq',
             setter,
             make_return_stmt(stmt, context, new_sub, get_dynamic_offset_value(), loop_memory_position)],
-        typ=None, pos=getpos(stmt), valency=0
+        typ=None, pos=pos, valency=0
     )
