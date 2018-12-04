@@ -631,8 +631,18 @@ class Stmt(object):
                         ),
                         self.stmt
                     )
+            loop_memory_position = self.context.new_placeholder(typ=BaseType('uint256'))
 
-            return gen_tuple_return(self.stmt, self.context, sub)
+            new_sub = LLLnode.from_list(self.context.new_placeholder(self.context.return_type), typ=self.context.return_type, location='memory')
+
+            setter = make_setter(new_sub, sub, 'memory', pos=getpos(self.stmt))
+
+            ret_stmt = make_return_stmt(self.stmt, self.context, new_sub, get_size_of_type(self.context.return_type) * 32, loop_memory_position=loop_memory_position)
+            return LLLnode.from_list(['seq', setter, ret_stmt],
+                typ=None, pos=getpos(self.stmt))
+
+
+            #return gen_tuple_return(self.stmt, self.context, sub)
 
         else:
             raise TypeMismatchException("Can't return type %r" % sub.typ, self.stmt)
