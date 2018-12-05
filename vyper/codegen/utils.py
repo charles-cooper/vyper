@@ -17,6 +17,7 @@ from vyper.types import (
     TupleType,
     TupleLike,
     ListType,
+    get_size_of_type,
 )
 from vyper.parser.parser_utils import (
     base_type_conversion,
@@ -66,80 +67,23 @@ def make_return_stmt(stmt, context, begin_pos, _size, loop_memory_position=None)
     else:
         return ['return', begin_pos, _size]
 
+def make_return_stmt_multi(stmt, context, sub):
+    lmp = context.new_placeholder(typ=BaseType('uint256')) # Loop memory position
+    typ = context.return_type
+    len_ = get_size_of_type(typ) * 32
 
-# Generate code for returning a tuple or struct.
-def gen_tuple_return(stmt, context, sub):
-    pos = getpos(stmt)
-    # Is from a call expression.
-    if sub.args and len(sub.args[0].args) > 0 and sub.args[0].args[0].value == 'call':  # self-call to public.
-        mem_pos = sub.args[0].args[-1]
-        mem_size = get_size_of_type(sub.typ) * 32
-        return LLLnode.from_list(['return', mem_pos, mem_size], typ=sub.typ)
+    if sub.location == "memory":
+        r = make_return_stmt(stmt, context, sub, len_, loop_memory_position=lmp)
+        return LLLnode.from_list(r, typ=None, pos=getpos(stmt), valency=0)
 
-    elif (sub.annotation and 'Internal Call' in sub.annotation):
-        mem_pos = sub.args[-1].value if sub.value == 'seq_unchecked' else sub.args[0].args[-1]
-        mem_size = get_size_of_type(sub.typ) * 32
-        # Add zero padder if bytes are present in output.
-        zero_padder = ['pass']
-        byte_arrays = [(i, x) for i, x in enumerate(sub.typ.get_tuple_members()) if isinstance(x, ByteArrayType)]
-        if byte_arrays:
-            i, x = byte_arrays[-1]
-            zero_padder = zero_pad(bytez_placeholder=['add', mem_pos, ['mload', mem_pos + i * 32]], maxlen=x.maxlen)
+    else:
+        x = context.new_placeholder(typ)
+        new_sub = LLLnode.from_list(x, typ=typ, location='memory')
+        setter = make_setter(new_sub, sub, 'memory', pos=getpos(stmt))
+        r = make_return_stmt(stmt, context, new_sub, len_, loop_memory_position=lmp)
         return LLLnode.from_list(
-            ['seq'] + [sub] + [zero_padder] + [make_return_stmt(stmt, context, mem_pos, mem_size)
-        ], typ=sub.typ, pos=pos, valency=0)
-
-    subs = []
-    # Pre-allocate loop_memory_position if required for private function returning.
-    loop_memory_position = context.new_placeholder(typ=BaseType('uint256')) if context.is_private else None
-    # Allocate dynamic off set counter, to keep track of the total packed dynamic data size.
-    dynamic_offset_counter_placeholder = context.new_placeholder(typ=BaseType('uint256'))
-    dynamic_offset_counter = LLLnode(
-        dynamic_offset_counter_placeholder, typ=None, annotation="dynamic_offset_counter"  # dynamic offset position counter.
-    )
-    new_sub = LLLnode.from_list(
-        context.new_placeholder(typ=BaseType('uint256')), typ=context.return_type, location='memory', annotation='new_sub'
-    )
-    dynamic_offset_start = 32 * len(sub.args)  # The static list of args end.
-    left_token = LLLnode.from_list('_loc', typ=new_sub.typ, location="memory")
-
-    def get_dynamic_offset_value():
-        # Get value of dynamic offset counter.
-        return ['mload', dynamic_offset_counter]
-
-    def increment_dynamic_offset(dynamic_spot):
-        # Increment dyanmic offset counter in memory.
-        return [
-            'mstore', dynamic_offset_counter,
-            ['add',
-                ['add', ['ceil32', ['mload', dynamic_spot]], 32],
-                ['mload', dynamic_offset_counter]]
-        ]
-
-    for i, arg in enumerate(sub.args):
-        variable_offset = LLLnode.from_list(['add', 32 * i, left_token], typ=arg.typ, annotation='variable_offset')
-        if isinstance(arg.typ, ByteArrayType):
-            # Store offset pointer value.
-            subs.append(['mstore', variable_offset, get_dynamic_offset_value()])
-
-            # Store dynamic data, from offset pointer onwards.
-            dynamic_spot = LLLnode.from_list(['add', left_token, get_dynamic_offset_value()], location="memory", typ=arg.typ, annotation='dynamic_spot')
-            subs.append(make_setter(dynamic_spot, arg, location="memory", pos=pos))
-            subs.append(increment_dynamic_offset(dynamic_spot))
-
-        else:
-            subs.append(make_setter(variable_offset, arg), "memory", pos=pos)
-
-    setter = LLLnode.from_list(
-        ['seq',
-            ['mstore', dynamic_offset_counter, dynamic_offset_start],
-            ['with', '_loc', new_sub, ['seq'] + subs]],
-        typ=None
-    )
-
-    return LLLnode.from_list(
-        ['seq',
-            setter,
-            make_return_stmt(stmt, context, new_sub, get_dynamic_offset_value(), loop_memory_position)],
-        typ=None, pos=pos, valency=0
-    )
+                ['seq',
+                    setter,
+                    r],
+                typ=None,
+                pos=getpos(stmt))

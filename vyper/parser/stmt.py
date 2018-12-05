@@ -23,8 +23,8 @@ from vyper.parser.parser_utils import (
     unwrap_location,
 )
 from vyper.codegen.utils import (
-    gen_tuple_return,
     make_return_stmt,
+    make_return_stmt_multi,
 )
 from vyper.types import (
     BaseType,
@@ -534,21 +534,28 @@ class Stmt(object):
         self.context.increment_return_counter()
         # Returning a value (most common case)
         if isinstance(sub.typ, BaseType):
+
             if not isinstance(self.context.return_type, BaseType):
                 raise TypeMismatchException("Trying to return base type %r, output expecting %r" % (sub.typ, self.context.return_type), self.stmt.value)
+
             sub = unwrap_location(sub)
             if not are_units_compatible(sub.typ, self.context.return_type):
                 raise TypeMismatchException("Return type units mismatch %r %r" % (sub.typ, self.context.return_type), self.stmt.value)
+
             elif sub.typ.is_literal and (self.context.return_type.typ == sub.typ or 'int' in self.context.return_type.typ and 'int' in sub.typ.typ):
                 if not SizeLimits.in_bounds(self.context.return_type.typ, sub.value):
                     raise InvalidLiteralException("Number out of range: " + str(sub.value), self.stmt)
+
                 else:
                     return LLLnode.from_list(['seq', ['mstore', 0, sub], make_return_stmt(self.stmt, self.context, 0, 32)], typ=None, pos=getpos(self.stmt), valency=0)
+
             elif is_base_type(sub.typ, self.context.return_type.typ) or \
                     (is_base_type(sub.typ, 'int128') and is_base_type(self.context.return_type, 'int256')):
                 return LLLnode.from_list(['seq', ['mstore', 0, sub], make_return_stmt(self.stmt, self.context, 0, 32)], typ=None, pos=getpos(self.stmt), valency=0)
+
             else:
                 raise TypeMismatchException("Unsupported type conversion: %r to %r" % (sub.typ, self.context.return_type), self.stmt.value)
+
         # Returning a byte array
         elif isinstance(sub.typ, ByteArrayType):
             if not isinstance(self.context.return_type, ByteArrayType):
@@ -588,29 +595,14 @@ class Stmt(object):
                     ),
                     self.stmt
                 )
-            elif sub.location == "memory" and sub.value != "multi":
-                return LLLnode.from_list(make_return_stmt(self.stmt, self.context, sub, get_size_of_type(self.context.return_type) * 32, loop_memory_position=loop_memory_position),
-                                            typ=None, pos=getpos(self.stmt), valency=0)
-            else:
-                new_sub = LLLnode.from_list(self.context.new_placeholder(self.context.return_type), typ=self.context.return_type, location='memory')
-                setter = make_setter(new_sub, sub, 'memory', pos=getpos(self.stmt))
-                return LLLnode.from_list(['seq', setter, make_return_stmt(self.stmt, self.context, new_sub, get_size_of_type(self.context.return_type) * 32, loop_memory_position=loop_memory_position)],
-                                            typ=None, pos=getpos(self.stmt))
+            return make_return_stmt_multi(self.stmt, self.context, sub)
 
         # Returning a struct
         elif isinstance(sub.typ, StructType):
             if self.context.return_type != sub.typ:
                 raise TypeMismatchException("Trying to return %r, but expected %r" % (sub.typ, self.context.return_type), self.stmt.value)
 
-            loop_memory_position = self.context.new_placeholder(typ=BaseType('uint256'))
-
-            new_sub = LLLnode.from_list(self.context.new_placeholder(self.context.return_type), typ=self.context.return_type, location='memory')
-
-            setter = make_setter(new_sub, sub, 'memory', pos=getpos(self.stmt))
-
-            ret_stmt = make_return_stmt(self.stmt, self.context, new_sub, get_size_of_type(self.context.return_type) * 32, loop_memory_position=loop_memory_position)
-            return LLLnode.from_list(['seq', setter, ret_stmt],
-                typ=None, pos=getpos(self.stmt))
+            return make_return_stmt_multi(self.stmt, self.context, sub)
 
         # Returning a tuple.
         elif isinstance(sub.typ, TupleType):
@@ -631,19 +623,7 @@ class Stmt(object):
                         ),
                         self.stmt
                     )
-            loop_memory_position = self.context.new_placeholder(typ=BaseType('uint256'))
-
-            new_sub = LLLnode.from_list(self.context.new_placeholder(self.context.return_type), typ=self.context.return_type, location='memory')
-
-            setter = make_setter(new_sub, sub, 'memory', pos=getpos(self.stmt))
-
-            ret_stmt = make_return_stmt(self.stmt, self.context, new_sub, get_size_of_type(self.context.return_type) * 32, loop_memory_position=loop_memory_position)
-            return LLLnode.from_list(['seq', setter, ret_stmt],
-                typ=None, pos=getpos(self.stmt))
-
-
-            #return gen_tuple_return(self.stmt, self.context, sub)
-
+            return make_return_stmt_multi(self.stmt, self.context, sub)
         else:
             raise TypeMismatchException("Can't return type %r" % sub.typ, self.stmt)
 
