@@ -249,6 +249,7 @@ def compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=No
         o = []
         for arg in code.args:
             o.extend(compile_to_assembly(arg, withargs, existing_labels, break_dest, height))
+            height += arg.valency
             # if arg.valency == 1 and arg != code.args[-1]:
             #     o.append('POP')
         return o
