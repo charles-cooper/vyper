@@ -90,7 +90,7 @@ def call_self_private(stmt_expr, context, sig):
         mem_to = var_slots[-1][0] + var_slots[-1][1] * 32
 
         LOOP_UNROLL_SIZE = 8
-        WORD = 32 # TODO make this global constant
+        WORD = 32  # TODO make this global constant
         LOOP_UNROLL_BYTES = LOOP_UNROLL_SIZE * WORD
 
         mem_to_aligned = mem_to - (mem_to - mem_from) % LOOP_UNROLL_BYTES
@@ -108,6 +108,7 @@ def call_self_private(stmt_expr, context, sig):
 
         if mem_to - mem_from >= LOOP_UNROLL_BYTES:
 
+            ###
             # back up locals routine
             loop_start = [['label', push_loop_label]]
 
@@ -118,16 +119,17 @@ def call_self_private(stmt_expr, context, sig):
                     ['set', 'mload_pos', ['add', 'mload_pos', WORD]]])
 
             loop_condition = \
-                    [['if', ['lt', 'mload_pos', mem_to_aligned],
-                        ['goto', push_loop_label]]]
+                [['if', ['lt', 'mload_pos', mem_to_aligned],
+                    ['goto', push_loop_label]]]
 
-            loop_body = ['seq_unchecked'] + loop_start + \
-                    unroll_mloads + \
-                    loop_condition
+            loop_body = ['seq_unchecked'] + \
+                loop_start + \
+                unroll_mloads + \
+                loop_condition
 
             push_local_vars.append(['with', 'mload_pos', mem_from, loop_body])
 
-
+            ###
             # restore local variables routine
             loop_start = [['label', pop_loop_label]]
 
@@ -137,12 +139,14 @@ def call_self_private(stmt_expr, context, sig):
                     ['set', 'mstore_pos', ['sub', 'mstore_pos', WORD]],
                     ['mstore', 'mstore_pos', 'pass']])
 
-            loop_condition = [['if', ['gt', 'mstore_pos', mem_from],
-                ['goto', pop_loop_label]]]
+            loop_condition = [
+                    ['if', ['gt', 'mstore_pos', mem_from],
+                        ['goto', pop_loop_label]]]
 
-            loop_body = ['seq_unchecked'] + loop_start + \
-                    unroll_mstores + \
-                    loop_condition
+            loop_body = ['seq_unchecked'] + \
+                loop_start + \
+                unroll_mstores + \
+                loop_condition
 
             pop_local_vars.append(
                     ['with', 'mstore_pos', mem_to_aligned, loop_body])
