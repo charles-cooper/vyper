@@ -79,6 +79,27 @@ def test_lll_from_s_expression(get_contract_from_lll):
     assert c.test(-123456) == -123456
 
 
+def test_set_in_with(get_contract_from_lll):
+    code = """
+(with x 10
+  (seq_unchecked
+   (mload x)
+   (set x (add x 3))
+   (mstore 0 x)
+   (return 0 32)))
+    """
+    s_expressions = parse_s_exp(code)
+    lll = LLLnode.from_list(s_expressions[0])
+    abi = [{ "name": "test",
+                "outputs": [{ "type": "int128", "name": "out" }],
+                "inputs": [],
+                "type": "function",
+                }]
+
+    c = get_contract_from_lll(lll, abi=abi)
+    assert c.test() == 13
+
+
 def test_pc_debugger():
     debugger_lll = [
         'seq_unchecked',
