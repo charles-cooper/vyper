@@ -118,9 +118,8 @@ def call_self_private(stmt_expr, context, sig):
                     ['mload', 'mload_pos'],
                     ['set', 'mload_pos', ['add', 'mload_pos', WORD]]])
 
-            loop_condition = \
-                [['if', ['lt', 'mload_pos', mem_to_aligned],
-                    ['goto', push_loop_label]]]
+            loop_condition = [['goto_if', ['lt', 'mload_pos', mem_to_aligned],
+                push_loop_label]]
 
             loop_body = ['seq_unchecked'] + \
                 loop_start + \
@@ -139,9 +138,8 @@ def call_self_private(stmt_expr, context, sig):
                     ['set', 'mstore_pos', ['sub', 'mstore_pos', WORD]],
                     ['mstore', 'mstore_pos', 'pass']])
 
-            loop_condition = [
-                    ['if', ['gt', 'mstore_pos', mem_from],
-                        ['goto', pop_loop_label]]]
+            loop_condition = [['goto_if', ['gt', 'mstore_pos', mem_from],
+                pop_loop_label]]
 
             loop_body = ['seq_unchecked'] + \
                 loop_start + \
