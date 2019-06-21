@@ -116,9 +116,9 @@ def call_self_private(stmt_expr, context, sig):
             for _ in range(LOOP_UNROLL_SIZE):
                 unroll_mloads.extend([
                     ['mload', 'mload_pos'],
-                    ['set', 'mload_pos', ['add', 'mload_pos', WORD]]])
+                    ['set', 'mload_pos', ['add', 'mload_pos', 'word']]])
 
-            loop_condition = [['goto_if', ['lt', 'mload_pos', mem_to_aligned],
+            loop_condition = [['goto_if', ['ne', 'mload_pos', 'mem_to_aligned'],
                 push_loop_label]]
 
             loop_body = ['seq_unchecked'] + \
@@ -126,7 +126,11 @@ def call_self_private(stmt_expr, context, sig):
                 unroll_mloads + \
                 loop_condition
 
-            push_local_vars.append(['with', 'mload_pos', mem_from, loop_body])
+            push_local_vars.append(
+                    ['with', 'mload_pos', mem_from,
+                    ['with', 'word', WORD,
+                    ['with', 'mem_to_aligned', mem_to_aligned,
+                        loop_body]]])
 
             ###
             # restore local variables routine
@@ -135,10 +139,10 @@ def call_self_private(stmt_expr, context, sig):
             unroll_mstores = []
             for _ in range(LOOP_UNROLL_SIZE):
                 unroll_mstores.extend([
-                    ['set', 'mstore_pos', ['sub', 'mstore_pos', WORD]],
+                    ['set', 'mstore_pos', ['sub', 'mstore_pos', 'word']],
                     ['mstore', 'mstore_pos', 'pass']])
 
-            loop_condition = [['goto_if', ['gt', 'mstore_pos', mem_from],
+            loop_condition = [['goto_if', ['ne', 'mstore_pos', 'mem_from'],
                 pop_loop_label]]
 
             loop_body = ['seq_unchecked'] + \
@@ -147,7 +151,10 @@ def call_self_private(stmt_expr, context, sig):
                 loop_condition
 
             pop_local_vars.append(
-                    ['with', 'mstore_pos', mem_to_aligned, loop_body])
+                    ['with', 'mstore_pos', mem_to_aligned,
+                    ['with', 'mem_from', mem_from,
+                    ['with', 'word', WORD,
+                        loop_body]]])
 
         for pos in range(mem_to_aligned, mem_to, WORD):
             push_local_vars.append(['mload', pos])
