@@ -82,36 +82,73 @@ def call_self_private(stmt_expr, context, sig):
     push_args = []
 
     # Push local variables.
+    # use a partially unrolled loop
     if context.vars:
         var_slots = [(v.pos, v.size) for name, v in context.vars.items()]
         var_slots.sort(key=lambda x: x[0])
-        mem_from, mem_to = var_slots[0][0], var_slots[-1][0] + var_slots[-1][1] * 32
+        mem_from = var_slots[0][0]
+        mem_to = var_slots[-1][0] + var_slots[-1][1] * 32
 
-        i_placeholder = context.new_placeholder(BaseType('uint256'))
+        LOOP_UNROLL_SIZE = 8
+        WORD = 32 # TODO make this global constant
+        LOOP_UNROLL_BYTES = LOOP_UNROLL_SIZE * WORD
+
+        mem_to_aligned = mem_to - (mem_to - mem_from) % LOOP_UNROLL_BYTES
+
         local_save_ident = "_%d_%d" % (stmt_expr.lineno, stmt_expr.col_offset)
         push_loop_label = 'save_locals_start' + local_save_ident
         pop_loop_label = 'restore_locals_start' + local_save_ident
 
-        if mem_to - mem_from > 320:
-            push_local_vars = [
-                    ['mstore', i_placeholder, mem_from],
-                    ['label', push_loop_label],
-                    ['mload', ['mload', i_placeholder]],
-                    ['mstore', i_placeholder, ['add', ['mload', i_placeholder], 32]],
-                    ['if', ['lt', ['mload', i_placeholder], mem_to],
-                        ['goto', push_loop_label]]
-            ]
-            pop_local_vars = [
-                ['mstore', i_placeholder, mem_to - 32],
-                ['label', pop_loop_label],
-                ['mstore', ['mload', i_placeholder], 'pass'],
-                ['mstore', i_placeholder, ['sub', ['mload', i_placeholder], 32]],
-                ['if', ['ge', ['mload', i_placeholder], mem_from],
-                       ['goto', pop_loop_label]]
-            ]
-        else:
-            push_local_vars = [['mload', pos] for pos in range(mem_from, mem_to, 32)]
-            pop_local_vars = [['mstore', pos, 'pass'] for pos in range(mem_to-32, mem_from-32, -32)]
+        push_local_vars = []
+        pop_local_vars = []
+
+        # mstores happen in reverse
+        for pos in reversed(range(mem_to_aligned, mem_to, WORD)):
+            pop_local_vars.append(['mstore', pos, 'pass'])
+
+        if mem_to - mem_from >= LOOP_UNROLL_BYTES:
+
+            # back up locals routine
+            loop_start = [['label', push_loop_label]]
+
+            unroll_mloads = []
+            for _ in range(LOOP_UNROLL_SIZE):
+                unroll_mloads.extend([
+                    ['mload', 'mload_pos'],
+                    ['set', 'mload_pos', ['add', 'mload_pos', WORD]]])
+
+            loop_condition = \
+                    [['if', ['lt', 'mload_pos', mem_to_aligned],
+                        ['goto', push_loop_label]]]
+
+            loop_body = ['seq_unchecked'] + loop_start + \
+                    unroll_mloads + \
+                    loop_condition
+
+            push_local_vars.append(['with', 'mload_pos', mem_from, loop_body])
+
+
+            # restore local variables routine
+            loop_start = [['label', pop_loop_label]]
+
+            unroll_mstores = []
+            for _ in range(LOOP_UNROLL_SIZE):
+                unroll_mstores.extend([
+                    ['mstore', 'mstore_pos', 'pass'],
+                    ['set', 'mstore_pos', ['sub', 'mstore_pos', WORD]]])
+
+            loop_condition = [['if', ['ge', 'mstore_pos', mem_from],
+                ['goto', pop_loop_label]]]
+
+            loop_body = ['seq_unchecked'] + loop_start + \
+                    unroll_mstores + \
+                    loop_condition
+
+            pop_local_vars.append(
+                    ['with', 'mstore_pos', mem_to_aligned - WORD, loop_body])
+
+        for pos in range(mem_to_aligned, mem_to, WORD):
+            push_local_vars.append(['mload', pos])
 
     # Push Arguments
     if expr_args:
