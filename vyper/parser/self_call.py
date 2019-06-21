@@ -99,6 +99,8 @@ def call_self_private(stmt_expr, context, sig):
         push_loop_label = 'save_locals_start' + local_save_ident
         pop_loop_label = 'restore_locals_start' + local_save_ident
 
+        i_placeholder = context.new_placeholder(BaseType('uint256'))
+
         push_local_vars = []
         pop_local_vars = []
 
@@ -115,8 +117,8 @@ def call_self_private(stmt_expr, context, sig):
             unroll_mloads = []
             for _ in range(LOOP_UNROLL_SIZE):
                 unroll_mloads.extend([
-                    ['mload', 'mload_pos'],
-                    ['set', 'mload_pos', ['add', 'mload_pos', WORD]]])
+                    ['mload', ['mload', i_placeholder]],
+                    ['mstore', i_placeholder, ['add', ['mload', i_placeholder], WORD]]])
 
             loop_condition = \
                 [['if', ['lt', 'mload_pos', mem_to_aligned],
@@ -127,7 +129,7 @@ def call_self_private(stmt_expr, context, sig):
                 unroll_mloads + \
                 loop_condition
 
-            push_local_vars.append(['with', 'mload_pos', mem_from, loop_body])
+            push_local_vars.append(loop_body) # ['with', 'mload_pos', mem_from, loop_body])
 
             ###
             # restore local variables routine
@@ -136,11 +138,11 @@ def call_self_private(stmt_expr, context, sig):
             unroll_mstores = []
             for _ in range(LOOP_UNROLL_SIZE):
                 unroll_mstores.extend([
-                    ['set', 'mstore_pos', ['sub', 'mstore_pos', WORD]],
-                    ['mstore', 'mstore_pos', 'pass']])
+                    ['mstore', i_placeholder, ['sub', ['mload', i_placeholder], WORD]],
+                    ['mstore', ['mload', i_placeholder], 'pass']])
 
             loop_condition = [
-                    ['if', ['gt', 'mstore_pos', mem_from],
+                    ['if', ['gt', ['mload', i_placeholder], mem_from],
                         ['goto', pop_loop_label]]]
 
             loop_body = ['seq_unchecked'] + \
@@ -148,8 +150,8 @@ def call_self_private(stmt_expr, context, sig):
                 unroll_mstores + \
                 loop_condition
 
-            pop_local_vars.append(
-                    ['with', 'mstore_pos', mem_to_aligned, loop_body])
+            pop_local_vars.append(loop_body)
+                    #['with', 'mstore_pos', mem_to_aligned, loop_body])
 
         for pos in range(mem_to_aligned, mem_to, WORD):
             push_local_vars.append(['mload', pos])
