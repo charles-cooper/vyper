@@ -6,6 +6,9 @@ from vyper import (
     compile_lll,
     optimizer,
 )
+from vyper.compiler import (
+    get_asm,
+)
 from vyper.parser.parser_utils import (
     LLLnode,
 )
@@ -34,6 +37,11 @@ parser.add_argument(
     help='Show gas estimates in ir output mode.',
     action='store_true',
 )
+parser.add_argument(
+    '--no-optimize',
+    action='store_true',
+    help='Turn off optimization pass',
+)
 
 args = parser.parse_args()
 
@@ -46,16 +54,16 @@ if __name__ == '__main__':
         s_expressions = parse_s_exp(f.read())
 
         lll = LLLnode.from_list(s_expressions[0])
+
+        if not args.no_optimize:
+            lll = optimizer.optimize(lll)
+
         if 'ir' in format_set:
             print(lll)
 
-        optimised = optimizer.optimize(lll)
-        if 'opt_ir' in format_set:
-            print(optimised)
-
         asm = compile_lll.compile_to_assembly(lll)
         if 'asm' in format_set:
-            print(asm)
+            print(get_asm(asm))
 
         (bytecode, _srcmap) = compile_lll.assembly_to_evm(asm)
         if 'bytecode' in format_set:
