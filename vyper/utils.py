@@ -202,7 +202,7 @@ valid_lll_macros = {
     'clampgt', 'clample', 'clamplt', 'codeload', 'continue', 'debugger', 'ge',
     'if', 'le', 'lll', 'ne', 'pass', 'repeat', 'seq', 'set', 'sge', 'sha3_32',
     'sha3_64', 'sle', 'uclampge', 'uclampgt', 'uclample', 'uclamplt', 'with',
-    '~codelen', 'label', 'goto'
+    '~codelen', 'label', 'goto', 'goto_if'
 }
 
 

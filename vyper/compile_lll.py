@@ -425,6 +425,9 @@ def compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=No
             '_sym_' + str(code.args[0]),
             'JUMP'
         ]
+    elif code.value == 'goto_if':
+        cond = compile_to_assembly(code.args[0], withargs, existing_labels, break_dest, height)
+        return [cond, '_sym_' + str(code.args[1]), 'JUMPI']
     elif isinstance(code.value, str) and code.value.startswith('_sym_'):
         return code.value
     # set a symbol as a location.
