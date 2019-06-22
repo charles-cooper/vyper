@@ -89,7 +89,7 @@ def call_self_private(stmt_expr, context, sig):
         mem_from = var_slots[0][0]
         mem_to = var_slots[-1][0] + var_slots[-1][1] * 32
 
-        LOOP_UNROLL_SIZE = 1
+        LOOP_UNROLL_SIZE = 8
         WORD = 32  # TODO make this global constant
         LOOP_UNROLL_BYTES = LOOP_UNROLL_SIZE * WORD
 
