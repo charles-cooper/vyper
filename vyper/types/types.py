@@ -172,6 +172,22 @@ class ListType(NodeType):
         return repr(self.subtype) + '[' + str(self.count) + ']'
 
 
+# Data structure for dynamic (in ABI sense) sized list with bounds on length
+class DynListType
+    def __init__(self, subtype, min_count, max_count, is_literal=False):
+        self.subtype = subtype
+        self.min_count = min_count
+        self.max_count = max_count
+        self.is_literal = is_literal
+
+    def eq(self, other):
+        return self.subtype == other.subtype \
+                and self.min_count = other.min_count \
+                and self.max_count = other.max_count
+    def __repr__(self):
+        return f'{repr(self.subtype)}[{self.min_count}:{self.max_count}]'
+
+
 # Data structure for a key-value mapping
 class MappingType(NodeType):
     def __init__(self, keytype, valuetype):
