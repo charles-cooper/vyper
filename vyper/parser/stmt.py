@@ -825,26 +825,23 @@ class Stmt(object):
             len_placeholder = self.context.new_placeholder(typ=BaseType('uint256'))
             bytez_placeholder = self.context.new_placeholder(typ=sub.typ)
 
-            if sub.location in ('storage', 'memory'):
-                return LLLnode.from_list([
-                    'seq',
-                    make_byte_array_copier(
-                        LLLnode(bytez_placeholder, location='memory', typ=sub.typ),
-                        sub,
-                        pos=getpos(self.stmt)
-                    ),
-                    zero_pad(bytez_placeholder),
-                    ['mstore', len_placeholder, 32],
-                    make_return_stmt(
-                        self.stmt,
-                        self.context,
-                        len_placeholder,
-                        ['ceil32', ['add', ['mload', bytez_placeholder], 64]],
-                        loop_memory_position=loop_memory_position,
-                    )
-                ], typ=None, pos=getpos(self.stmt), valency=0)
-            else:
-                raise Exception(f"Invalid location: {sub.location}")
+            return LLLnode.from_list([
+                'seq',
+                make_byte_array_copier(
+                    LLLnode(bytez_placeholder, location='memory', typ=sub.typ),
+                    sub,
+                    pos=getpos(self.stmt)
+                ),
+                zero_pad(bytez_placeholder),
+                ['mstore', len_placeholder, 32],
+                make_return_stmt(
+                    self.stmt,
+                    self.context,
+                    len_placeholder,
+                    ['ceil32', ['add', ['mload', bytez_placeholder], 64]],
+                    loop_memory_position=loop_memory_position,
+                )
+            ], typ=None, pos=getpos(self.stmt), valency=0)
 
         elif isinstance(sub.typ, ListType):
             loop_memory_position = self.context.new_placeholder(typ=BaseType('uint256'))

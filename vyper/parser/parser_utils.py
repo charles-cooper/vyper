@@ -116,7 +116,7 @@ def make_byte_array_copier(destination, source, pos=None):
             location=source.location,
         )
     else:
-        raise CompilerPanic("Unsupported location:" + source.location)
+        raise CompilerPanic(f"Unsupported location: {source}/{source.location}")
     if destination.location == "storage":
         destination = LLLnode.from_list(
             ['sha3_32', destination],
@@ -295,6 +295,8 @@ def add_variable_offset(parent, key, pos, array_bounds_check=True):
             index = key
             annotation = None
 
+        if parent.value is None:
+            return LLLnode.from_list(None, typ=subtype, location=location)
         if location == 'storage':
             return LLLnode.from_list(
                 ['add', ['sha3_32', parent], LLLnode.from_list(index, annotation=annotation)],
@@ -369,12 +371,17 @@ def add_variable_offset(parent, key, pos, array_bounds_check=True):
                         pos)
             sub = k
         else:
+            if parent.value is None:
+                # somebody might try an OOB on empty. nip it before it compiles
+                raise ArrayIndexException("Can't subscript empty with dynamic index")
             # this works, even for int128. for int128, since two's-complement
             # is used, if the index is negative, (unsigned) LT will interpret
             # it as a very large number, larger than any practical value for
             # an array index, and the clamp will throw an error.
             sub = ['uclamplt', k, typ.count]
 
+        if parent.value is None:
+            return LLLnode.from_list(None, typ=subtype, location=location)
         if location == 'storage':
             return LLLnode.from_list(['add', ['sha3_32', parent], sub],
                                      typ=subtype,
@@ -483,12 +490,18 @@ def pack_arguments(signature, args, context, stmt_expr, return_placeholder=True)
 
         elif isinstance(typ, ByteArrayLike):
             setters.append(['mstore', placeholder + staticarray_offset + 32 + i * 32, '_poz'])
-            arg_copy = LLLnode.from_list('_s', typ=arg.typ, location=arg.location)
             target = LLLnode.from_list(
                 ['add', placeholder + 32, '_poz'],
                 typ=typ,
                 location='memory',
             )
+            if arg.value is None:
+                # short-term fix for None until pack args is refactored
+                x = LLLnode.from_list(context.new_placeholder(typ),
+                        typ=typ, location='memory')
+                setters.append(make_setter(x, arg, 'memory', pos))
+                arg = x
+            arg_copy = LLLnode.from_list('_s', typ=arg.typ, location=arg.location)
             setters.append([
                 'with', '_s', arg, [
                     'seq',
@@ -591,6 +604,10 @@ def make_setter(left, right, location, pos, in_function_call=False):
                 ), right.args[i], location, pos=pos))
             return LLLnode.from_list(['with', '_L', left, ['seq'] + subs], typ=None)
         elif right.value is None:
+            if right.typ != left.typ:
+                raise TypeMismatch(
+                    f"left side is {left.typ}, right side is {right.typ}", pos
+                )
             if left.location == 'memory':
                 return mzero(left, 32*get_size_of_type(left.typ))
 
@@ -687,6 +704,11 @@ def make_setter(left, right, location, pos, in_function_call=False):
             return LLLnode.from_list(['with', '_L', left, ['seq'] + subs], typ=None)
         # If the right side is a null
         elif right.value is None:
+            if left.typ != right.typ:
+                raise TypeMismatch(
+                    f"left side is {left.typ}, right side is {right.typ}", pos
+                )
+
             if left.location == 'memory':
                 return mzero(left, 32*get_size_of_type(left.typ))
 

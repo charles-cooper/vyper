@@ -302,7 +302,6 @@ def o_list(lll_node, pos=None):
         else:
             ks = lll_t.tuple_keys() if isinstance(lll_t, TupleLike) else \
                     [LLLnode.from_list(i, 'uint256') for i in range(lll_t.count)]
-
             ret = [add_variable_offset(lll_node, k, pos, array_bounds_check=False)
                    for k in ks]
         return ret

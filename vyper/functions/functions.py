@@ -10,6 +10,7 @@ from vyper.exceptions import (
     CompilerPanic,
     ConstancyViolation,
     InvalidLiteral,
+    ParserException,
     StructureException,
     TypeMismatch,
 )
