@@ -42,7 +42,7 @@ from vyper.semantics.types.utils import get_type_from_annotation
 from vyper.semantics.types.value.boolean import BoolDefinition
 from vyper.semantics.types.value.numeric import Uint256Definition
 from vyper.semantics.validation.annotation import StatementAnnotationVisitor
-from vyper.semantics.validation.base import VyperNodeVisitorBase
+from vyper.ast.visitor import VyperNodeVisitorBase
 from vyper.semantics.validation.utils import (
     get_common_types,
     get_exact_type_from_node,

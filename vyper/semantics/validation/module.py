@@ -5,6 +5,7 @@ from typing import Optional, Union
 import vyper.builtin_interfaces
 from vyper import ast as vy_ast
 from vyper.ast.validation import validate_call_args
+from vyper.ast.visitor import VyperNodeVisitorBase
 from vyper.exceptions import (
     CallViolation,
     CompilerPanic,
@@ -23,7 +24,6 @@ from vyper.semantics.types.bases import DataLocation
 from vyper.semantics.types.function import ContractFunction
 from vyper.semantics.types.user.event import Event
 from vyper.semantics.types.utils import check_literal, get_type_from_annotation
-from vyper.semantics.validation.base import VyperNodeVisitorBase
 from vyper.semantics.validation.utils import (
     validate_expected_type,
     validate_unique_method_ids,
