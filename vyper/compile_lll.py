@@ -254,7 +254,8 @@ def compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=No
         endcode = mksymbol()
         o.extend([endcode, "JUMP", begincode, "BLANK"])
         # The `append(...)` call here is intentional
-        o.append(compile_to_assembly(code.args[0], {}, existing_labels, None, 0))
+        # is it?
+        o.extend(compile_to_assembly(code.args[0], {}, existing_labels, None, 0))
         o.extend([endcode, "JUMPDEST", begincode, endcode, "SUB", begincode])
         o.extend(compile_to_assembly(code.args[1], withargs, existing_labels, break_dest, height))
         o.extend(["CODECOPY", begincode, endcode, "SUB"])
@@ -564,13 +565,6 @@ def assembly_to_evm(assembly, start_pos=0):
                 pos += 3  # PUSH2 highbits lowbits
         elif item == "BLANK":
             pos += 0
-        elif isinstance(item, list):
-            c, sub_map = assembly_to_evm(item, start_pos=pos)
-            sub_assemblies.append(item)
-            codes.append(c)
-            pos += len(c)
-            for key in line_number_map:
-                line_number_map[key].update(sub_map[key])
         else:
             pos += 1
 
@@ -594,11 +588,6 @@ def assembly_to_evm(assembly, start_pos=0):
             o += bytes([SWAP_OFFSET + int(item[4:])])
         elif item == "BLANK":
             pass
-        elif isinstance(item, list):
-            for j in range(len(sub_assemblies)):
-                if sub_assemblies[j] == item:
-                    o += codes[j]
-                    break
         else:
             # Should never reach because, assembly is create in compile_to_assembly.
             raise Exception("Weird symbol in assembly: " + str(item))  # pragma: no cover
