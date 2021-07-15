@@ -3,6 +3,9 @@ from typing import Any, List, Optional
 
 from vyper.parser.parser_utils import LLLnode
 from vyper.utils import LOADED_LIMITS
+import math
+
+import copy
 
 
 def get_int_at(args: List[LLLnode], pos: int, signed: bool = False) -> Optional[int]:
@@ -50,6 +53,7 @@ def _is_constant_add(node: LLLnode, args: List[LLLnode]) -> bool:
 def optimize(lll_node: LLLnode) -> LLLnode:
     lll_node = apply_general_optimizations(lll_node)
     lll_node = filter_unused_sizelimits(lll_node)
+    lll_node = merge_push_constants(lll_node)
 
     return lll_node
 
@@ -359,6 +363,76 @@ def _find_mload_offsets(lll_node: LLLnode, expected_offsets: set, seen_offsets: 
             seen_offsets.update(_find_mload_offsets(node, expected_offsets, seen_offsets))
 
     return seen_offsets
+
+# search for repeated constants PUSHed onto the stack and
+# turn them into `with` statements (so future references can just use dup)
+def merge_push_constants(lll_node: LLLnode, max_slots: int = 16) -> LLLnode:
+    lll_node = copy.deepcopy(lll_node)
+
+    # search for the max 'with' depth so that we don't use more than 16
+    # stack slots
+    def _maxheight(x: LLLnode):
+        # "lll" is an optimization barrier.
+        xs = list(_maxheight(a) for a in x.args if a.value != "lll")
+        mh = max(xs) if xs else 0
+        if x.value == 'with':
+            return mh + 1
+        else:
+            return mh
+
+    available_slots = max(0, max_slots - _maxheight(lll_node))
+
+    # now search for the most bang for our buck.
+    def _constants(x: LLLnode, consts_list: dict=None) -> dict:
+        if consts_list is None:
+            consts_list = {}
+
+        # find constants.
+        # nice-to-have: add jumpdest locations into the set
+        if isinstance(x.value, int):
+            consts_list.setdefault(x.value, 1)
+            consts_list[x.value] += 1
+        else:
+            for a in x.args:
+                _constants(a, consts_list)
+
+        return consts_list
+
+    consts = _constants(lll_node)
+    # translate constant into bytes used in the bytecode
+    # PUSH1 x   -> 1
+    # PUSH2 xx  -> 2
+    # PUSH3 xxx -> 3
+    # and so on
+    bytecode_overhead = lambda x: int(math.log(x, 256)) + 1
+    offenders = [(k, bytecode_overhead(v)) for k, v in consts.items()]
+
+    # get the top K offenders by bytecode_overhead
+    offenders.sort(key=lambda x: x[1])[:available_slots]
+    offenders = dict(offenders)
+
+    def _const_to_varname(x: int):
+        return f"CONST_{x}"
+
+    ret = lll_node
+    # replace constants in place
+    def _replace_constants(x: LLLnode):
+        if isinstance(x.value, int) and x.value in to_use:
+            x.value = _const_to_varname(x.value)
+        # "lll" is an optimization barrier.
+        if x.value != "lll":
+            for x in x.args:
+                _replace_constants(x)
+        else:
+            x.args[0] = merge_push_constants(x.args[0])
+
+    _replace_constants(ret)
+
+    for x in offenders:
+        varname = _const_to_varname(x)
+        ret = LLLnode.from_list(["with", varname, x, ret])
+
+    return ret
 
 
 def _remove_mstore(lll_node: LLLnode, offsets: set) -> None:
