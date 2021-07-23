@@ -98,7 +98,8 @@ def gen_tuple_return(stmt, context, sub):
 
     if sub.value == "multi":
 
-        if isinstance(context.return_type, TupleType) and not abi_typ.dynamic_size_bound():
+        #if isinstance(context.return_type, TupleType) and not abi_typ.dynamic_size_bound():
+        if False:
             # for tuples where every value is of the same type and a fixed length,
             # we can simplify the encoding by treating it as though it were an array
             base_types = set()
@@ -129,13 +130,7 @@ def gen_tuple_return(stmt, context, sub):
         # in case of multi we can't create a variable to store location of the return expression
         # as multi can have data from multiple location like store, calldata etc
         encode_out = abi_encode(return_buffer, sub, pos=getpos(stmt), returns=True)
-        load_return_len = ["mload", MemoryPositions.FREE_VAR_SPACE]
-        os = [
-            "seq",
-            ["mstore", MemoryPositions.FREE_VAR_SPACE, encode_out],
-            make_return_stmt(stmt, context, return_buffer, load_return_len),
-        ]
-        return LLLnode.from_list(os, typ=None, pos=getpos(stmt), valency=0)
+        return make_return_stmt(stmt, context, return_buffer, encode_out)
 
     # for tuple return types where a function is called inside the tuple, we
     # process the calls prior to encoding the return data

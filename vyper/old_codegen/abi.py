@@ -336,7 +336,7 @@ def o_list(lll_node, pos=None):
 # performance note: takes O(n^2) compilation time
 # where n is depth of data type, could be optimized but unlikely
 # that users will provide deeply nested data.
-def abi_encode(dst, lll_node, pos=None, bufsz=None, returns=False):
+def abi_encode(dst, lll_node, pos=None, bufsz=None, returns=False, root=True):
     parent_abi_t = abi_type_of(lll_node.typ)
     size_bound = parent_abi_t.static_size() + parent_abi_t.dynamic_size_bound()
     if bufsz is not None and bufsz < 32 * size_bound:
@@ -356,7 +356,7 @@ def abi_encode(dst, lll_node, pos=None, bufsz=None, returns=False):
                 lll_ret.append(["mstore", dst_loc, dyn_ofst])
                 # recurse
                 child_dst = ["add", dst_begin, dyn_ofst]
-                child = abi_encode(child_dst, o, pos=pos, returns=True)
+                child = abi_encode(child_dst, o, pos=pos, returns=True, root=False)
                 # increment dyn ofst for the return
                 # (optimization note:
                 #   if non-returning and this is the last dyn member in
@@ -364,7 +364,7 @@ def abi_encode(dst, lll_node, pos=None, bufsz=None, returns=False):
                 lll_ret.append(["set", dyn_ofst, ["add", dyn_ofst, child]])
             else:
                 # recurse
-                lll_ret.append(abi_encode(dst_loc, o, pos=pos, returns=False))
+                lll_ret.append(abi_encode(dst_loc, o, pos=pos, returns=False, root=False))
 
         elif isinstance(o.typ, BaseType):
             d = LLLnode(dst_loc, typ=o.typ, location="memory")
@@ -400,7 +400,13 @@ def abi_encode(dst, lll_node, pos=None, bufsz=None, returns=False):
         dyn_section_start = parent_abi_t.static_size()
         lll_ret = ["with", "dyn_ofst", dyn_section_start, lll_ret]
 
-    lll_ret = ["with", dst_begin, dst, ["with", dst_loc, dst_begin, lll_ret]]
+    if not root and not parent_abi_t.is_tuple():
+        # we are in a non-root node so dst_loc and dst already exist;
+        # optimize out the stack item allocation
+        # (TODO ideally we would just detect shared variable names and
+        pass
+    else:
+        lll_ret = ["with", dst_begin, dst, ["with", dst_loc, dst_begin, lll_ret]]
 
     return LLLnode.from_list(lll_ret)
 
