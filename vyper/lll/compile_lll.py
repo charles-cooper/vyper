@@ -53,7 +53,7 @@ def _assert_false():
     return ["_sym_revert0", "JUMPI"]
 
 
-def _add_postambles(asm_ops, use_ovm=False):
+def _add_postambles(asm_ops, use_ovm=True):
     to_append = []
 
     _revert0_string = ["_sym_revert0", "JUMPDEST", "PUSH1", 0, "DUP1", "REVERT"]
@@ -107,7 +107,7 @@ def apply_line_numbers(func):
 
 
 @apply_line_numbers
-def compile_to_assembly(code, use_ovm=False):
+def compile_to_assembly(code, use_ovm=True):
     res = _compile_to_assembly(code)
 
     _add_postambles(res, use_ovm)

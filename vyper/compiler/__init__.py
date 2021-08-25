@@ -42,7 +42,7 @@ def compile_codes(
     exc_handler: Union[Callable, None] = None,
     interface_codes: Union[InterfaceDict, InterfaceImports, None] = None,
     initial_id: int = 0,
-    use_ovm: bool = False,
+    use_ovm: bool = True,
 ) -> OrderedDict:
     """
     Generate compiler output(s) from one or more contract source codes.
@@ -121,7 +121,7 @@ def compile_code(
     output_formats: Optional[OutputFormats] = None,
     interface_codes: Optional[InterfaceImports] = None,
     evm_version: str = DEFAULT_EVM_VERSION,
-    use_ovm: bool = False,
+    use_ovm: bool = True,
 ) -> dict:
     """
     Generate compiler output(s) from a single contract source code.

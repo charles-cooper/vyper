@@ -48,7 +48,7 @@ class CompilerData:
         contract_name: str = "VyperContract",
         interface_codes: Optional[InterfaceImports] = None,
         source_id: int = 0,
-        use_ovm: bool = False,
+        use_ovm: bool = True,
     ) -> None:
         """
         Initialization method.
@@ -245,7 +245,7 @@ def generate_lll_nodes(
     return lll_nodes, lll_runtime
 
 
-def generate_assembly(lll_nodes: parser.LLLnode, use_ovm: bool = False) -> list:
+def generate_assembly(lll_nodes: parser.LLLnode, use_ovm: bool = True) -> list:
     """
     Generate assembly instructions from LLL.
 

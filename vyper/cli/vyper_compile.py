@@ -85,7 +85,7 @@ def _parse_args(argv):
         dest="evm_version",
     )
     parser.add_argument(
-        "--ovm", help="EXPERIMENTAL: Use the OVM backend", action="store_true",
+        "--ovm", help="EXPERIMENTAL: Use the OVM backend", action="store_false",
     )
     parser.add_argument(
         "--traceback-limit",
@@ -205,7 +205,7 @@ def compile_files(
     root_folder: str = ".",
     show_gas_estimates: bool = False,
     evm_version: str = DEFAULT_EVM_VERSION,
-    use_ovm: bool = False,
+    use_ovm: bool = True,
 ) -> OrderedDict:
 
     if show_gas_estimates:
