@@ -80,6 +80,35 @@ def _codecopy_gas_bound(num_bytes):
     return GAS_CODECOPY_WORD * ceil32(num_bytes) // 32
 
 
+# threshold for using mstores/mloads instead of identity precompile
+MEMCOPY_UNROLL_THRESHOLD = 4 * 32
+
+
+def _memcopy_unrolled(dst, src, pos=None):
+    num_words = ceil32(dst.typ.maxlen) // 32
+
+    if dst.is_complex_lll:
+        l = LLLnode.from_list("dst")
+    else:
+        l = dst
+    if src.is_complex_lll:
+        r = LLLnode.from_list("src")
+    else:
+        r = src
+
+    ret = ["seq"]
+
+    for i in range(num_words):
+        load_r = ["mload", _add_ofst(r, i*32)]
+        ret.append(["mstore", _add_ofst(l, i*32), load_r])
+
+    if src.is_complex_lll:
+        ret = ["with", "src", src, ret]
+    if dst.is_complex_lll:
+        ret = ["with", "dst", dst, ret]
+    return LLLnode.from_list(ret)
+
+
 # Copy byte array word-for-word (including layout)
 def make_byte_array_copier(destination, source, pos=None):
     if not isinstance(source.typ, ByteArrayLike):
@@ -101,9 +130,11 @@ def make_byte_array_copier(destination, source, pos=None):
     # TODO: this should be handled by make_byte_slice_copier.
     if destination.location == "memory" and source.location in ("memory", "code", "calldata"):
         if source.location == "memory":
-            # TODO turn this into an LLL macro: memorycopy
-            copy_op = ["assert", ["call", ["gas"], 4, 0, "src", "sz", destination, "sz"]]
+            if destination.typ.maxlen <= MEMCOPY_UNROLL_THRESHOLD:
+                return _memcopy_unrolled(destination, source, pos)
+            copy_op = ["pop", ["call", ["gas"], 4, 0, "src", "sz", destination, "sz"]]
             gas_bound = _identity_gas_bound(source.typ.maxlen)
+
         elif source.location == "calldata":
             copy_op = ["calldatacopy", destination, "src", "sz"]
             gas_bound = _calldatacopy_gas_bound(source.typ.maxlen)
