@@ -161,7 +161,10 @@ def _external_call_helper(
     else:
         call_op = ["call", gas, contract_address, value, args_ofst, args_len, ret_ofst, ret_len]
 
-    sub.append(["assert", call_op])
+    if revert_on_failure:
+        sub.append(["assert", call_op])
+    else:
+        sub.append(["mstore", call_success_location, call_op])
 
     if contract_sig.return_type is not None:
         sub += ret_unpacker
@@ -184,12 +187,15 @@ def get_gas_and_value(stmt_expr, context):
         Expr,  # TODO rethink this circular import
     )
 
-    value, gas = None, None
+    value, gas, revert_on_failure = None, None
     for kw in stmt_expr.keywords:
         if kw.arg == "gas":
             gas = Expr.parse_value_expr(kw.value, context)
         elif kw.arg == "value":
             value = Expr.parse_value_expr(kw.value, context)
+        elif kw.arg == "revert_on_failure":
+            assert isinstance(kw.value, bool)
+            value = kw.value
         else:
             raise TypeCheckFailure("Unexpected keyword argument")
     return value, gas
