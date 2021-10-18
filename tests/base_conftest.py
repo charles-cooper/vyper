@@ -131,7 +131,7 @@ def _get_contract(w3, source_code, *args, **kwargs):
     return contract
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def get_contract(w3):
     def get_contract(source_code, *args, **kwargs):
         return _get_contract(w3, source_code, *args, **kwargs)
