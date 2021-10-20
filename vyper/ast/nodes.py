@@ -141,7 +141,23 @@ def _to_dict(value):
     # if value is a Vyper node, convert to a dict
     if isinstance(value, VyperNode):
         return value.to_dict()
-    return value
+    if isinstance(value, (int, str)) or value is None:
+        return value
+
+    if isinstance(value, list):
+        return [_to_dict(x) for x in value]
+
+    if isinstance(value, dict):
+        ret = value
+    else:
+        typename = type(value).__name__
+        if hasattr(value, "__dict__"):
+            return typename
+        ret = {typename: vars(value)}
+
+    for k in list(ret.keys()):
+        ret[k] = _to_dict(ret[k])
+    return ret
 
 
 def _node_filter(node, filters):
@@ -311,7 +327,9 @@ class VyperNode:
         and are not included within this sequence.
         """
         slot_fields = [x for i in cls.__mro__ for x in getattr(i, "__slots__", [])]
-        return set(i for i in slot_fields if not i.startswith("_"))
+        ret = set(i for i in slot_fields if not i.startswith("_"))
+        ret.add("_metadata")
+        return ret
 
     def __hash__(self):
         values = [getattr(self, i, None) for i in VyperNode.__slots__ if not i.startswith("_")]
