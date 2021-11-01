@@ -1,6 +1,6 @@
 import io
 import re
-from tokenize import COMMENT, NAME, OP, TokenError, TokenInfo, tokenize, untokenize
+from tokenize import COMMENT, NAME, OP, STRING, TokenError, TokenInfo, tokenize, untokenize
 from typing import Tuple
 
 from semantic_version import NpmSpec, Version
@@ -69,6 +69,19 @@ VYPER_CLASS_TYPES = {
 # simple statements or expressions that are replaced with `yield`
 VYPER_EXPRESSION_TYPES = {
     "log",
+}
+
+# https://trojansource.codes/trojan-source.pdf
+BIDI_TROJAN_CHARS = {
+    "\u202a",
+    "\u202b",
+    "\u202d",
+    "\u202c",
+    "\u202e",
+    "\u2066",
+    "\u2067",
+    "\u2068",
+    "\u2069",
 }
 
 
@@ -150,6 +163,14 @@ def pre_parse(code: str) -> Tuple[ModificationOffsets, str]:
 
             if (typ, string) == (OP, ";"):
                 raise SyntaxException("Semi-colon statements not allowed", code, start[0], start[1])
+
+            if typ != STRING:
+                for c in string.decode("utf-8"):
+                    if c in BIDI_TROJAN_CHARS:
+                        raise SyntaxException(
+                            "Bidi Trojan Source Characters not allowed", code, start[0], start[1]
+                        )
+
             result.extend(toks)
     except TokenError as e:
         raise SyntaxException(e.args[0], code, e.args[1][0], e.args[1][1]) from e
