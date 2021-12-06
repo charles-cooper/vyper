@@ -186,7 +186,7 @@ def make_byte_slice_copier(destination, source, length, max_length, pos=None):
             [
                 "with",
                 "_l",
-                max_length,  # CMC 20210917 shouldn't this just be length
+                length,
                 ["staticcall", "gas", 4, source, "_l", destination, "_l"],
             ],
             typ=None,
