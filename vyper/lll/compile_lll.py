@@ -200,7 +200,6 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
     # Repeat(memloc, start, rounds, body)
     elif code.value == "repeat":
         o = []
-        loops = num_to_bytearray(code.args[2].value)
         start, continue_dest, end = mksymbol(), mksymbol(), mksymbol()
         o.extend(_compile_to_assembly(code.args[0], withargs, existing_labels, break_dest, height))
         o.extend(
@@ -212,7 +211,8 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
                 height + 1,
             )
         )
-        o.extend(["PUSH" + str(len(loops))] + loops)
+        o.extend(_compile_to_assembly(code.args[2], withargs, existing_labels, break_dest, height))
+
         # stack: memloc, startvalue, rounds
         o.extend(["DUP2", "DUP4", "MSTORE", "ADD", start, "JUMPDEST"])
         # stack: memloc, exit_index

@@ -177,8 +177,9 @@ def make_byte_array_copier(destination, source, pos=None):
 # Accepts 4 arguments:
 # (i) an LLL node for the start position of the source
 # (ii) an LLL node for the start position of the destination
-# (iii) an LLL node for the length
-# (iv) a constant for the max length
+# (iii) an LLL node for the runtime length (in bytes)
+# (iv) a constant for the max length (in bytes)
+# Does word-for-word copy and pads up to nearest 32 bytes
 def make_byte_slice_copier(destination, source, length, max_length, pos=None):
     # Special case: memory to memory
     if source.location == "memory" and destination.location == "memory":
@@ -213,6 +214,7 @@ def make_byte_slice_copier(destination, source, length, max_length, pos=None):
         loader = ["sload", ["add", "_pos", ["mload", MemoryPositions.FREE_LOOP_INDEX]]]
     else:
         raise CompilerPanic(f"Unsupported location: {source.location}")
+
     # Where to paste it?
     if destination.location == "memory":
         setter = [
@@ -224,6 +226,7 @@ def make_byte_slice_copier(destination, source, length, max_length, pos=None):
         setter = ["sstore", ["add", "_opos", ["mload", MemoryPositions.FREE_LOOP_INDEX]], loader]
     else:
         raise CompilerPanic(f"Unsupported location: {destination.location}")
+
     # Check to see if we hit the length
     checker = [
         "if",
@@ -242,13 +245,13 @@ def make_byte_slice_copier(destination, source, length, max_length, pos=None):
             destination,
             [
                 "with",
-                "_actual_len",
-                length,
+                "_len",
+                ["ceil32", length],
                 [
                     "repeat",
                     MemoryPositions.FREE_LOOP_INDEX,
                     0,
-                    (max_length + 31) // 32,
+                    "_len",
                     ["seq", checker, setter],
                 ],
             ],
@@ -256,7 +259,6 @@ def make_byte_slice_copier(destination, source, length, max_length, pos=None):
     ]
     return LLLnode.from_list(
         o,
-        typ=None,
         annotation=f"copy byte slice src: {source} dst: {destination}",
         pos=pos,
     )
