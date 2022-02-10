@@ -565,24 +565,16 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
             break_dest,
             height,
         )
+
     # e.g. 95 -> 96, 96 -> 96, 97 -> 128
     elif code.value == "ceil32":
-        return _compile_to_assembly(
-            LLLnode.from_list(
-                [
-                    "with",
-                    "_val",
-                    code.args[0],
-                    # in mod32 arithmetic, the solution to x + y == 32 is
-                    # y = bitwise_not(x) & 31
-                    ["add", "_val", ["and", ["not", ["sub", "_val", 1]], 31]],
-                ]
-            ),
-            withargs,
-            existing_labels,
-            break_dest,
-            height,
-        )
+        o = _compile_to_assembly(code.args[0], withargs, existing_labels, break_dest, height)
+
+        # floor32(x) = x - x % 32 == x & 0b11..100000 == x & (~31)
+        # ceil32(x) = floor32(x + 31) == (x + 31) & (~31)
+        o.extend(["PUSH1", 31, "ADD", "PUSH1", 31, "NOT", "AND"])
+        return o
+
     # # jump to a symbol, and push variable arguments onto stack
     elif code.value == "goto":
         o = []
