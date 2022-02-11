@@ -247,7 +247,8 @@ def copy_bytes(dst, src, length, length_bound, pos=None):
         else:
             raise CompilerPanic(f"Unsupported location: {dst.location}")  # pragma: notest
 
-        n = ["div", ["ceil32", length], 32]
+        # optimized form of (div (ceil32 len) 32)
+        n = ["div", ["add", 31, length], 32]
         n_bound = ceil32(length_bound) // 32
 
         main_loop = ["repeat", i, 0, n, n_bound, setter]
