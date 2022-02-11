@@ -144,6 +144,22 @@ def apply_general_optimizations(node: LLLnode) -> LLLnode:
     elif node.value in ("if", "assert") and argz[0].value == "eq":
         argz[0] = ["iszero", ["xor", *argz[0].args]]  # type: ignore
 
+    elif node.value == "with" and isinstance(argz[1], int):
+        body = argz[2]
+
+        def _replace(lll, var, val):
+            if lll.value == "with" and var == lll.args[0]:
+                # shadowed
+                return
+            if lll.value == var:
+                lll.value = val
+            for arg in lll.args:
+                _replace(arg, var, val)
+
+        _replace(body, argz[0], argz[1].value)
+        value = optimize(body)
+        argz = []
+
     elif node.value == "if" and len(argz) == 3:
         # if(x) compiles to jumpi(_, iszero(x))
         # there is an asm optimization for the sequence ISZERO ISZERO..JUMPI
