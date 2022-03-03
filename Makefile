@@ -6,10 +6,17 @@ else
 	pip := $(shell which pip)
 endif
 
+ifeq (, $(shell which python3))
+	python := $(shell which python3)
+else
+	python := $(shell which python)
+endif
+
+
 .PHONY: test dev-deps lint clean clean-pyc clean-build clean-test docs
 
 init:
-	python setup.py install
+	${python} setup.py install
 
 dev-init:
 	${pip} install .[dev]
@@ -35,14 +42,14 @@ docs:
 	# xdg-open docs/_build/html/index.html (Linux)
 
 release: clean
-	python setup.py sdist bdist_wheel
+	${python} setup.py sdist bdist_wheel
 	twine check dist/*
 	#twine upload dist/*
 
 freeze: clean init
 	echo Generating binary...
 	export OS="$$(uname -s | tr A-Z a-z)" && \
-	export VERSION="$$(PYTHONPATH=. python vyper/cli/vyper_compile.py --version)" && \
+	export VERSION="$$(PYTHONPATH=. ${python} vyper/cli/vyper_compile.py --version)" && \
 	pyinstaller --target-architecture=universal2 --clean --onefile vyper/cli/vyper_compile.py --name "vyper.$${VERSION}.$${OS}" --add-data vyper:vyper
 
 clean: clean-build clean-docs clean-pyc clean-test
