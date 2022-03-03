@@ -36,11 +36,9 @@ jobs:
           distro: ubuntu20.04
           #dockerRunArgs: |
           #  --workdir "/work" --volume "${PWD}/dist:/work/dist"
-          dockerRunArgs: |
-            --platform linux/amd64
           run: >-
             # python3 == 3.8
-            apt install -yq python3 python3-pip
+            apt install -yq python3 python3-pip &&
             pip install . &&
             pip install pyinstaller &&
             make freeze
