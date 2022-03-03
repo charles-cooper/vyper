@@ -37,7 +37,7 @@ jobs:
           setup: |
             mkdir -p "${PWD}/dist"
           dockerRunArgs: |
-            --volume "${PWD}/dist:/dist"
+            --workdir "/work" --volume "${PWD}/dist:/work/dist"
           run: >-
             # python3 == 3.8
             apt install -yq python3 python3-pip
