@@ -99,6 +99,7 @@ jobs:
         run: |
           wget -q "https://www.python.org/ftp/python/3.9.10/python-3.9.10-macos11.pkg"
           sudo installer -pkg python-3.9.10-macos11.pkg -target /
+          alias python=python3  # haha
           python -m ensurepip --upgrade
           pip install .
           pip install pyinstaller
