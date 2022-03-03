@@ -16,6 +16,7 @@ defaults:
     shell: bash
 
 jobs:
+
   m1-build:
     runs-on: ubuntu-20.04
     name: Build on ubuntu-20.04 / aarch64
@@ -27,23 +28,21 @@ jobs:
             ref: ${{ github.event.inputs.tag }}
             # need to fetch unshallow so that setuptools_scm can infer the version
             fetch-depth: 0
+      - name: Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+
       - uses: uraimo/run-on-arch-action@v2.1.1
         name: Build artifact
         id: build
         with:
           arch: aarch64
           distro: ubuntu20.04
-
-      - name: Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: "3.8"
-
-      - name: Generate Binary
-        run: >-
-          pip install . &&
-          pip install pyinstaller &&
-          make freeze
+          run: >-
+            pip install . &&
+            pip install pyinstaller &&
+            make freeze
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
