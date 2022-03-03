@@ -39,7 +39,7 @@ jobs:
           install: |
             apt-get update -q -y
             # python3 == 3.8 on ubuntu 20.04
-            apt-get -qq install -y python3 python3-pip
+            apt-get -qq install -y python3 python3-pip git
           run: >-
             pip install . &&
             pip install pyinstaller &&
