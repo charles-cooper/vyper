@@ -34,6 +34,7 @@ jobs:
         with:
           arch: aarch64
           distro: ubuntu20.04
+          githubToken: ${{ github.token }} # Not required, but speeds up builds
           #dockerRunArgs: |
           #  --workdir "/work" --volume "${PWD}/dist:/work/dist"
           install: |
