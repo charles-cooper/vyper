@@ -43,7 +43,8 @@ jobs:
           run: >-
             pip install . &&
             pip install pyinstaller &&
-            make freeze
+            make freeze &&
+            mv dist/ /dist
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
