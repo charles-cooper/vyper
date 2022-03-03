@@ -97,9 +97,11 @@ jobs:
 
       - name: Generate Binary
         run: |
-          brew install python@3.9
-          pip3 install .
-          pip3 install pyinstaller
+          wget -q "https://www.python.org/ftp/python/3.9.10/python-3.9.10-macos11.pkg"
+          sudo installer -pkg python-3.9.10-macos11.pkg -target /
+          python3 -m ensurepip --upgrade
+          pip install .
+          pip install pyinstaller
           make freeze
 
       - name: Upload Artifact
