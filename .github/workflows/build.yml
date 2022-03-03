@@ -100,7 +100,7 @@ jobs:
           wget -q "https://www.python.org/ftp/python/3.9.10/python-3.9.10-macos11.pkg"
           sudo installer -pkg python-3.9.10-macos11.pkg -target /
           python3 -m ensurepip --upgrade
-          pip3 install .
+          pip3 install --no-binary pycryptodome .
           pip3 install pyinstaller
           make freeze
 
