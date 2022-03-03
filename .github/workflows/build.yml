@@ -17,42 +17,6 @@ defaults:
 
 jobs:
 
-  m1-build:
-    runs-on: ubuntu-20.04
-
-    steps:
-      - uses: actions/checkout@v2
-        with:
-            # grab the commit passed in via `tag`, if any
-            ref: ${{ github.event.inputs.tag }}
-            # need to fetch unshallow so that setuptools_scm can infer the version
-            fetch-depth: 0
-
-      - uses: uraimo/run-on-arch-action@v2.1.1
-        name: Build artifact
-        id: build
-        with:
-          arch: aarch64
-          distro: bullseye
-          githubToken: ${{ github.token }} # Not required, but speeds up builds
-          #dockerRunArgs: |
-          #  --workdir "/work" --volume "${PWD}/dist:/work/dist"
-          install: |
-            apt-get update -qq -y
-            # python3 == 3.8 on ubuntu 20.04
-            apt-get -qq install -y python-is-python3 python3 python3-pip git
-          run: >-
-            pip install . &&
-            pip install pyinstaller &&
-            make freeze &&
-            mv dist/ /dist
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
-        with:
-          path: dist/vyper.*
-
-
   unix-build:
     runs-on: ${{ matrix.os }}
     strategy:
