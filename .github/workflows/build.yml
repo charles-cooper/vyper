@@ -98,8 +98,8 @@ jobs:
       - name: Generate Binary
         run: |
           brew install python@3.9
-          pip install .
-          pip install pyinstaller
+          pip3 install .
+          pip3 install pyinstaller
           make freeze
 
       - name: Upload Artifact
