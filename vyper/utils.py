@@ -5,20 +5,17 @@ from typing import Dict, List, Union
 
 from vyper.exceptions import InvalidLiteral
 
-try:
-    from Crypto.Hash import keccak  # type: ignore
-
-    keccak256 = lambda x: keccak.new(digest_bits=256, data=x).digest()  # noqa: E731
-except ImportError:
-    import sha3 as _sha3
-
-    keccak256 = lambda x: _sha3.sha3_256(x).digest()  # noqa: E731
+import hashlib
 
 try:
     # available py3.8+
     from functools import cached_property
 except ImportError:
     from cached_property import cached_property  # type: ignore
+
+
+def keccak256(x):
+    return hashlib.sha3_256(x).digest()
 
 
 # Converts four bytes to an integer
