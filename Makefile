@@ -6,7 +6,7 @@ else
 	pip := $(shell which pip)
 endif
 
-ifeq (, $(shell which python3))
+ifeq (, $(shell which python))
 	python := $(shell which python3)
 else
 	python := $(shell which python)
