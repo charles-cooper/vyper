@@ -37,7 +37,7 @@ jobs:
           #dockerRunArgs: |
           #  --workdir "/work" --volume "${PWD}/dist:/work/dist"
           install: |
-            apt-get update -q -y
+            apt-get update -qq -y
             # python3 == 3.8 on ubuntu 20.04
             apt-get -qq install -y python3 python3-pip git
           run: >-
