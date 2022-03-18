@@ -36,7 +36,7 @@ def foo(x: {typ}, y: {typ}) -> {typ}:
     # number of cases very much affects fuzzer time so test u/int256
     # with more cases, and fewer cases for all other int types
     # (roughly 5k cases total generated)
-    NUM_CASES = 40 if typ in ("int256", "uint256") else 5
+    NUM_CASES = 30 if typ in ("int256", "uint256") else 5
     xs = [random.randrange(lo, hi) for _ in range(NUM_CASES)]
     ys = [random.randrange(lo, hi) for _ in range(NUM_CASES)]
 
