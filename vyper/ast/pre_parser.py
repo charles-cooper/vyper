@@ -75,6 +75,25 @@ VYPER_EXPRESSION_TYPES = {
 }
 
 
+def _extract_annotated_tuple(token_list, i):
+    if i > len(token_list) - 3:
+        return
+
+    tmp = []
+    def _helper(j):
+        tok1, tok2, tok3 = token_list[j : j + 3]
+        if tok1.typ == "NAME" and tok2.typ == "OP" and tok2.string == ":" and tok3.typ == "NAME":
+            ret.append((tok1, tok3))
+            _helper(j + 3)
+
+    _helper(i)
+    if len(tmp) > 1:
+        varnames, types = unzip(tmp)
+
+        # TODO create token list from varnames and types
+        #return ret
+
+
 def pre_parse(code: str) -> Tuple[ModificationOffsets, str]:
     """
     Re-formats a vyper source string into a python source string and performs
@@ -128,6 +147,14 @@ def pre_parse(code: str) -> Tuple[ModificationOffsets, str]:
                     start[1],
                 )
 
+            if typ == NAME and "VYPER_ANNOTATED_TUPLE" in string:
+                raise SyntaxException(
+                    "VYPER_ANNOTATED_TUPLE is not allowed in identifiers",
+                    code,
+                    start[0],
+                    start[1],
+                )
+
             if typ == NAME and string == "contract" and start[1] == 0:
                 raise SyntaxException(
                     "The `contract` keyword has been deprecated. Please use `interface`",
@@ -150,6 +177,12 @@ def pre_parse(code: str) -> Tuple[ModificationOffsets, str]:
                 elif string in VYPER_EXPRESSION_TYPES:
                     toks = [TokenInfo(NAME, "yield", start, end, line)]
                     modification_offsets[start] = string.capitalize()
+
+                annot_tuple = _extract_annotated_tuple(token_list, i)
+                if annot_tuple is not None:
+                    toks = annot_tuple
+                    modification_offsets[start] = string.capitalize()
+
 
             if (typ, string) == (OP, ";"):
                 raise SyntaxException("Semi-colon statements not allowed", code, start[0], start[1])

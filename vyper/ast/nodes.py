@@ -1206,7 +1206,19 @@ class Assign(VyperNode):
 
 
 class AnnAssign(VyperNode):
-    __slots__ = ("target", "annotation", "value", "simple")
+    __slots__ = ("target", "annotation", "value", "simple", "tuple_target")
+
+    def __init__(self, *args, **kwargs):
+        if isinstance(self.target, Name) and "VYPER_ANNOTATED_TUPLE" in self.target.id:
+            targets = self.target.id.split("VYPER_ANNOTATED_TUPLE")
+            assert isinstance(self.annotation, Tuple), "pre-parser mistake"
+            assert len(targets) == len(self.annotation.elements), "pre-parser mistake"
+            self.target = Tuple(elements=targets)
+
+            # tuple_target is for downstream use; equivalent info to
+            # zip(target.elements, annotation.elements) but prepackaged
+
+            self.tuple_target = zip(targets, self.annotation.elements)
 
 
 class AugAssign(VyperNode):
