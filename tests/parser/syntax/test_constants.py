@@ -197,6 +197,12 @@ BYTE32_LIST: constant(bytes32[2]) = [
 ZERO_LIST: constant(int128[8]) = [0, 0, 0, 0, 0, 0, 0, 0]
     """,
     """
+CONST: constant(uint8) = 3
+@external
+def foo() -> uint256:
+    return convert(CONST, uint256)
+    """,
+    """
 MY_DECIMAL: constant(decimal) = 1e-10
     """,
     """

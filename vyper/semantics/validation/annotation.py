@@ -164,7 +164,14 @@ class ExpressionAnnotationVisitor(_AnnotationVisitorBase):
             self.visit(node.right, type_)
 
     def visit_Constant(self, node, type_):
-        node._metadata["type"] = type_
+        if "type" in node._metadata:
+            # we already have a type from the constant folder.
+            # do nothing, but also sanity check we don't have
+            # inconsistent results.
+            t = node._metadata["type"]
+            assert type_ is None or type_.compare_type(t), (type_, t)
+        else:
+            node._metadata["type"] = type_
 
     def visit_Dict(self, node, type_):
         node._metadata["type"] = type_

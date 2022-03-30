@@ -6,7 +6,7 @@ struct Bid:
 
 # Note: because Vyper does not allow for dynamic arrays, we have limited the
 # number of bids that can be placed by one address to 128 in this example
-MAX_BIDS: constant(int128) = 128
+MAX_BIDS: constant(uint256) = 128
 
 # Event for logging that auction has ended
 event AuctionEnded:
@@ -27,7 +27,7 @@ highestBidder: public(address)
 
 # State of the bids
 bids: HashMap[address, Bid[128]]
-bidCounts: HashMap[address, int128]
+bidCounts: HashMap[address, uint256]
 
 # Allowed withdrawals of previous bids
 pendingReturns: HashMap[address, uint256]
@@ -63,7 +63,7 @@ def bid(_blindedBid: bytes32):
     assert block.timestamp < self.biddingEnd
 
     # Check that payer hasn't already placed maximum number of bids
-    numBids: int128 = self.bidCounts[msg.sender]
+    numBids: uint256 = self.bidCounts[msg.sender]
     assert numBids < MAX_BIDS
 
     # Add bid to mapping of all bids
@@ -95,7 +95,7 @@ def placeBid(bidder: address, _value: uint256) -> bool:
 # Reveal your blinded bids. You will get a refund for all correctly blinded
 # invalid bids and for all bids except for the totally highest.
 @external
-def reveal(_numBids: int128, _values: uint256[128], _fakes: bool[128], _secrets: bytes32[128]):
+def reveal(_numBids: uint256, _values: uint256[128], _fakes: bool[128], _secrets: bytes32[128]):
     # Check that bidding period is over
     assert block.timestamp > self.biddingEnd
 

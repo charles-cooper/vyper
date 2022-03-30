@@ -183,12 +183,18 @@ class Expr:
         self.ir_node.source_pos = getpos(self.expr)
 
     def parse_Int(self):
+        t = self.expr._metadata.get("type")
+        if t is not None:
+            typ = new_type_to_old_type(t)
         # Literal (mostly likely) becomes int256
-        if self.expr.n < 0:
-            return IRnode.from_list(self.expr.n, typ=BaseType("int256", is_literal=True))
-        # Literal is large enough (mostly likely) becomes uint256.
+        elif self.expr.n < 0:
+            typ = BaseType("int256")
         else:
-            return IRnode.from_list(self.expr.n, typ=BaseType("uint256", is_literal=True))
+            typ = BaseType("uint256")
+
+        typ.is_literal = True
+
+        return IRnode.from_list(self.expr.n, typ=typ)
 
     def parse_Decimal(self):
         val = self.expr.value * DECIMAL_DIVISOR
