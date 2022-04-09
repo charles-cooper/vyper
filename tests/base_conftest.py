@@ -1,4 +1,5 @@
 import pytest
+import os
 from eth_tester import EthereumTester, PyEVMBackend
 from eth_tester.exceptions import TransactionFailed
 from eth_utils.toolz import compose
@@ -11,6 +12,14 @@ from vyper import compiler
 from .grammar.conftest import get_lark_grammar
 
 LARK_GRAMMAR = get_lark_grammar()
+
+
+# allow seeding random module from the environment, so case
+# generation can be consistent across xdist workers
+PYTEST_XDIST_RANDOM_SEED = os.environ.get("PYTEST_XDIST_RANDOM_SEED")
+if PYTEST_XDIST_RANDOM_SEED is not None:
+    seed = int(PYTEST_XDIST_RANDOM_SEED)
+    random.seed(seed)
 
 
 class VyperMethod:
