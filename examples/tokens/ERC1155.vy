@@ -13,14 +13,15 @@ interface ERC1155TokenReceiver:
         _id: uint256,
         _value: uint256,
         _data: Bytes[256]
-    ) -> bytes32: view # TODO: should return bytes4
+    ) -> bytes4: view
+
     def onERC1155BatchReceived(
         _operator: address,
         _from: address,
         _ids: DynArray[uint256, BATCH_SIZE],
         _values: DynArray[uint256, BATCH_SIZE],
         _data: Bytes[256]
-    ) -> bytes32: view # TODO: should return bytes4
+    ) -> bytes4: view
 
 
 # @dev Either `TransferSingle` or `TransferBatch` MUST emit when tokens are transferred, including zero value transfers as well as minting or burning (see "Safe Transfer Rules" section of the standard).
@@ -66,14 +67,16 @@ event ApprovalForAll:
     _approved: bool
 
 
-
-supportedInterfaces: HashMap[bytes32, bool]
-
 # https://eips.ethereum.org/EIPS/eip-165
-ERC165_INTERFACE_ID: constant(bytes32)  = 0x0000000000000000000000000000000000000000000000000000000001ffc9a7
-ERC1155_INTERFACE_ID: constant(bytes32) = 0x00000000000000000000000000000000000000000000000000000000d9b67a26
+ERC165_INTERFACE_ID: constant(bytes4)  = 0x01ffc9a7
+ERC1155_INTERFACE_ID: constant(bytes4) = 0xd9b67a26
+
+
+SUPPORTED_INTERFACES: constant(bytes4[2]) = [ERC165_INTERFACE_ID, ERC1155_INTERFACE_ID]
+
 
 tokensIdCount: uint256
+
 
 _balanceOf: HashMap[address, HashMap[uint256, uint256]]
 operators: HashMap[address, HashMap[address, bool]]
@@ -84,16 +87,9 @@ BATCH_SIZE: constant(uint256) = 128
 
 
 @external
-def __init__():
-    self.tokensIdCount = 0
-    self.supportedInterfaces[ERC165_INTERFACE_ID] = True
-    self.supportedInterfaces[ERC1155_INTERFACE_ID] = True
-
-
-@external
 @view
-def supportsInterface(_interfaceID: bytes32) -> bool:
-    return self.supportedInterfaces[_interfaceID]
+def supportsInterface(interface_id: bytes4) -> bool:
+    return interface_id in SUPPORTED_INTERFACES
 
 
 # @notice Transfers `_value` amount of an `_id` from the `_from` address to the `_to` address specified (with safety call).
@@ -117,17 +113,19 @@ def safeTransferFrom(
     _value: uint256,
     _data: Bytes[256]
   ):
-    assert _from == msg.sender or (self.operators[_from])[msg.sender]
-    assert _to != ZERO_ADDRESS
-    assert self._balanceOf[_from][_id] >= _value
 
-    if _to.is_contract:
-        returnValue: bytes32 = ERC1155TokenReceiver(_to).onERC1155Received(msg.sender, _from, _id, _value, _data)
-        assert returnValue == method_id("onERC1155Received(address,address,uint256,uint256,bytes)", output_type=bytes32)
+    assert _from == msg.sender or self.operators[_from][msg.sender]
+
+    assert _to != empty(address)
 
     self._balanceOf[_from][_id] -= _value
     self._balanceOf[_to][_id] += _value
+
     log TransferSingle(msg.sender, _from, _to, _id, _value)
+
+    if _to.is_contract:
+        res: bytes4 = ERC1155TokenReceiver(_to).onERC1155Received(msg.sender, _from, _id, _value, _data)
+        assert res == method_id("onERC1155Received(address,address,uint256,uint256,bytes)")
 
 
 # @notice Transfers `_values` amount(s) of `_ids` from the `_from` address to the `_to` address specified (with safety call).
@@ -144,7 +142,6 @@ def safeTransferFrom(
 # @param _ids     IDs of each token type (order and length must match _values array)
 # @param _values  Transfer amounts per token type (order and length must match _ids array)
 # @param _data    Additional data with no specified format, MUST be sent unaltered in call to the `ERC1155TokenReceiver` hook(s) on `_to`
-# function safeBatchTransferFrom(address _from, address _to, uint256[] calldata _ids, uint256[] calldata _values, bytes calldata _data) external;
 @external
 def safeBatchTransferFrom(
     _from: address,
@@ -153,19 +150,26 @@ def safeBatchTransferFrom(
     _values: DynArray[uint256, BATCH_SIZE],
     _data: Bytes[256]
   ):
-    assert _from == msg.sender or (self.operators[_from])[msg.sender]
-    assert _to != ZERO_ADDRESS
+    assert _from == msg.sender or self.operators[_from][msg.sender]
+    assert _to != empty(address)
+
     assert len(_ids) == len(_values)
 
-    for i in range(BATCH_SIZE):
-        assert self._balanceOf[_from][_ids[i]] >= _values[i]
-        self._balanceOf[_from][_ids[i]] -= _values[i]
-        self._balanceOf[_to][_ids[i]] += _values[i]
-        if _to.is_contract:
-            returnValue: bytes32 = ERC1155TokenReceiver(_to).onERC1155Received(msg.sender, _from, _ids[i], _values[i], _data)
-            assert returnValue == method_id("onERC1155Received(address,address,uint256,uint256,bytes)", output_type=bytes32)
+    # would be nice: `for id, val in zip(ids, values)`
+    i: uint256 = 0
+    for val in _values:
+        id: uint256 = _ids[i]
+        self._balanceOf[_from][id] -= val
+        self._balanceOf[_to][id] += val
+
+        i += 1
 
     log TransferBatch(msg.sender, _from, _to, _ids, _values)
+
+    # effects come after storage updates
+    if _to.is_contract:
+        ret: bytes4 = ERC1155TokenReceiver(_to).onERC1155BatchReceived(msg.sender, _from, _ids, _values, _data)
+        assert ret == method_id("onERC1155BatchReceived(address,address,uint256,uint256,bytes)")
 
 
 # @notice Get the balance of an account's tokens.
@@ -179,7 +183,7 @@ def balanceOf(
     _owner: address,
     _id: uint256
   ) -> uint256:
-    assert _owner != ZERO_ADDRESS
+    assert _owner != empty(address)
     return self._balanceOf[_owner][_id]
 
 
@@ -196,11 +200,16 @@ def balanceOfBatch(
 ) -> DynArray[uint256, BATCH_SIZE]:
     assert len(_owners) == len(_ids)
 
-    returnValues: DynArray[uint256, BATCH_SIZE] = empty(DynArray[uint256, BATCH_SIZE])
+    ret: DynArray[uint256, BATCH_SIZE] = []
 
-    for i in range(BATCH_SIZE):
-        returnValues[i] = self._balanceOf[_owners[i]][_ids[i]]
-    return returnValues
+    # would be nice: `for (o, id) in zip(_owners, ids)`
+    i: uint256 = 0
+    for id in _ids:
+        o: address = _owners[i]
+        ret.append(self._balanceOf[o][id])
+        i += 1
+
+    return ret
 
 
 # @notice Enable or disable approval for a third party ("operator") to manage all of the caller's tokens.
@@ -213,7 +222,7 @@ def setApprovalForAll(
     _operator: address,
     _approved: bool
   ):
-    (self.operators[msg.sender])[_operator] = _approved
+    self.operators[msg.sender][_operator] = _approved
     log ApprovalForAll(msg.sender, _operator, _approved)
 
 
@@ -228,7 +237,7 @@ def isApprovedForAll(
     _owner: address,
     _operator: address
   ) -> bool:
-    return (self.operators[_owner])[_operator]
+    return self.operators[_owner][_operator]
 
 
 # NOTE: This is not part of the standard
@@ -239,10 +248,13 @@ def mint(
     _supply: uint256,
     _data: Bytes[256]
   ) -> uint256:
-    assert _to != ZERO_ADDRESS
+    assert _to != empty(address)
     self._balanceOf[msg.sender][self.tokensIdCount] = _supply
+
     self.tokensIdCount += 1
+
     log TransferSingle(msg.sender, ZERO_ADDRESS, _to, self.tokensIdCount, _supply)
+
     return self.tokensIdCount
 
 
@@ -252,17 +264,28 @@ def mint(
 def mintBatch(
     _to: address,
     _supplys: DynArray[uint256, BATCH_SIZE],
-    _data: Bytes[256]
+    _data: Bytes[256]  # note: unused
   ) -> DynArray[uint256, BATCH_SIZE]:
-    assert _to != ZERO_ADDRESS
-    ids: DynArray[uint256, BATCH_SIZE] = empty(DynArray[uint256, BATCH_SIZE])
-    for i in range(BATCH_SIZE):
-        self._balanceOf[msg.sender][self.tokensIdCount] = _supplys[i]
-        self.tokensIdCount += 1
-        id: uint256 = self.tokensIdCount
-        ids[i] = id
 
-    log TransferBatch(msg.sender, ZERO_ADDRESS, _to, ids, _supplys)
+    assert _to != empty(address)
+
+    ids: DynArray[uint256, BATCH_SIZE] = []
+
+    # lift tokensIdCount out of the loop, so we only do one SLOAD/SSTORE
+    next_id: uint256 = self.tokensIdCount
+
+    for s in _supplys:
+
+        self._balanceOf[msg.sender][next_id] = s
+        ids.append(next_id)
+
+        next_id += 1
+
+    # write back. 1 sstore
+    self.tokensIdCount = next_id
+
+    log TransferBatch(msg.sender, empty(address), _to, ids, _supplys)
+
     return ids
 
 
