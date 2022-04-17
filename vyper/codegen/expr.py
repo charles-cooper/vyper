@@ -186,8 +186,14 @@ class Expr:
         if self.ir_node is None:
             raise TypeCheckFailure(f"{type(node).__name__} node did not produce IR. {self.expr}")
 
+        if destination_buffer is not None and self.ir_node.typ is not None:
+            self.ir_node = make_setter(destination_buffer, self.ir_node)
+
+
         self.ir_node.annotation = self.expr.get("node_source_code")
         self.ir_node.source_pos = getpos(self.expr)
+
+
 
     def parse_Int(self):
         # Literal (mostly likely) becomes int256
