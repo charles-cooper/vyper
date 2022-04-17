@@ -54,15 +54,17 @@ def ir_for_self_call(stmt_expr, context, return_buffer=None):
 
     return_label = _generate_label(f"{sig.internal_function_label}_call")
 
+    return_in_place = True
     # allocate space for the return buffer
     # TODO allocate in stmt and/or expr.py
     if sig.return_type is not None:
-        if return_buffer is None:
+        if return_buffer is None or not return_buffer.is_pointer:
+            return_in_place = False
             return_buffer = IRnode.from_list(
-                context.new_internal_variable(sig.return_type), annotation=f"{return_label}_return_buf"
+                context.new_internal_variable(sig.return_type), annotation=f"{return_label}_return_buf", location=MEMORY
             )
     else:
-        return_buffer = None
+        assert return_buffer is None
 
     # note: dst_tuple_t != args_tuple_t
     dst_tuple_t = TupleType([arg.typ for arg in sig.args])
@@ -102,13 +104,13 @@ def ir_for_self_call(stmt_expr, context, return_buffer=None):
         goto_op,
         ["label", return_label, ["var_list"], "pass"],
     ]
-    if return_buffer is not None:
+    if return_buffer is not None and not return_in_place:
         # push return buffer location to stack
         call_sequence += [return_buffer]
 
     o = IRnode.from_list(
         call_sequence,
-        typ=sig.return_type,
+        typ=sig.return_type if not return_in_place else None,
         location=MEMORY,
         annotation=stmt_expr.get("node_source_code"),
         add_gas_estimate=sig.gas,
