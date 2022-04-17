@@ -64,40 +64,20 @@ class Stmt:
             custom_structs=self.context.structs,
         )
         varname = self.stmt.target.id
-        pos = self.context.new_variable(varname, typ)
+        var = self.context.new_variable(varname, typ)
+        target = IRnode.from_list(var, typ=typ, location=MEMORY)
+
         if self.stmt.value is None:
             return
 
-        sub = Expr(self.stmt.value, self.context).ir_node
-
-        is_literal_bytes32_assign = (
-            isinstance(sub.typ, ByteArrayType)
-            and sub.typ.maxlen == 32
-            and isinstance(typ, BaseType)
-            and typ.typ == "bytes32"
-            and sub.typ.is_literal
-        )
-
-        # If bytes[32] to bytes32 assignment rewrite sub as bytes32.
-        if is_literal_bytes32_assign:
-            sub = IRnode(
-                util.bytes_to_int(self.stmt.value.s),
-                typ=BaseType("bytes32"),
-            )
-
-        variable_loc = IRnode.from_list(pos, typ=typ, location=MEMORY)
-
-        ir_node = make_setter(variable_loc, sub)
-
-        return ir_node
+        return Expr(self.stmt.value, self.context, target).ir_node
 
     def parse_Assign(self):
         # Assignment (e.g. x[4] = y)
-        sub = Expr(self.stmt.value, self.context).ir_node
+
         target = self._get_target(self.stmt.target)
 
-        ir_node = make_setter(target, sub)
-        return ir_node
+        return Expr(self.stmt.value, self.context, target).ir_node
 
     def parse_If(self):
         if self.stmt.orelse:
@@ -394,8 +374,10 @@ class Stmt:
 
     def parse_Return(self):
         ir_val = None
+
         if self.stmt.value is not None:
             ir_val = Expr(self.stmt.value, self.context).ir_node
+
         return make_return_stmt(ir_val, self.stmt, self.context)
 
     def _get_target(self, target):

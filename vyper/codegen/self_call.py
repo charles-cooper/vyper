@@ -14,7 +14,7 @@ def _generate_label(name: str) -> str:
     return f"label{_label_counter}"
 
 
-def ir_for_self_call(stmt_expr, context):
+def ir_for_self_call(stmt_expr, context, return_buffer=None):
     from vyper.codegen.expr import Expr  # TODO rethink this circular import
 
     # ** Internal Call **
@@ -57,9 +57,10 @@ def ir_for_self_call(stmt_expr, context):
     # allocate space for the return buffer
     # TODO allocate in stmt and/or expr.py
     if sig.return_type is not None:
-        return_buffer = IRnode.from_list(
-            context.new_internal_variable(sig.return_type), annotation=f"{return_label}_return_buf"
-        )
+        if return_buffer is None:
+            return_buffer = IRnode.from_list(
+                context.new_internal_variable(sig.return_type), annotation=f"{return_label}_return_buf"
+            )
     else:
         return_buffer = None
 
@@ -73,7 +74,6 @@ def ir_for_self_call(stmt_expr, context):
     # are fully evaluated.
     if args_as_tuple.contains_self_call:
         copy_args = ["seq"]
-        # TODO deallocate me
         tmp_args_buf = IRnode(
             context.new_internal_variable(dst_tuple_t),
             typ=dst_tuple_t,

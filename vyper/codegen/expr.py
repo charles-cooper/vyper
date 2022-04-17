@@ -168,9 +168,10 @@ def calculate_largest_base(b: int, num_bits: int, is_signed: bool) -> int:
 class Expr:
     # TODO: Once other refactors are made reevaluate all inline imports
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, destination_buffer=None):
         self.expr = node
         self.context = context
+        self.dst_buf = destination_buffer
 
         if isinstance(node, IRnode):
             # TODO this seems bad
@@ -253,7 +254,7 @@ class Expr:
         return self._make_bytelike(typ, bytez, bytez_length)
 
     def _make_bytelike(self, btype, bytez, bytez_length):
-        placeholder = self.context.new_internal_variable(btype)
+        placeholder = self.dst_buf or self.context.new_internal_variable(btype)
         seq = []
         seq.append(["mstore", placeholder, bytez_length])
         for i in range(0, len(bytez), 32):
@@ -726,7 +727,10 @@ class Expr:
 
         i = IRnode.from_list(self.context.fresh_varname("in_ix"), typ="uint256")
 
-        found_ptr = self.context.new_internal_variable(BaseType("bool"))
+        if self.dst_buf is not None:
+            found_ptr = self.dst_buf
+        else:
+            found_ptr = self.context.new_internal_variable(BaseType("bool"))
 
         ret = ["seq"]
 
@@ -949,7 +953,7 @@ class Expr:
             and isinstance(self.expr.func.value, vy_ast.Name)
             and self.expr.func.value.id == "self"
         ):  # noqa: E501
-            return self_call.ir_for_self_call(self.expr, self.context)
+            return self_call.ir_for_self_call(self.expr, self.context, self.dst_buf)
         else:
             return external_call.ir_for_external_call(self.expr, self.context)
 
