@@ -290,6 +290,8 @@ def pop_dyn_array(darray_node, return_popped_item):
             ret.append(STORE(darray_node, new_len))
 
             # NOTE skip array bounds check bc we already asserted len two lines up
+            # TODO: move this logic into optimizer. if return_popped_item is
+            # false, it should just be a dead assignment and get pruned.
             if return_popped_item:
                 popped_item = get_element_ptr(darray_node, new_len, array_bounds_check=False)
                 ret.append(popped_item)

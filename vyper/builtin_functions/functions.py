@@ -2055,7 +2055,7 @@ class ABIEncode(_SimpleBuiltinFunction):
         )
 
 
-DISPATCH_TABLE = {
+BUILTIN_FUNCTIONS = {
     "_abi_encode": ABIEncode(),
     "floor": Floor(),
     "ceil": Ceil(),
@@ -2091,9 +2091,6 @@ DISPATCH_TABLE = {
     "max": Max(),
     "empty": Empty(),
     "abs": Abs(),
-}
-
-STMT_DISPATCH_TABLE = {
     "send": Send(),
     "print": Print(),
     "selfdestruct": SelfDestruct(),
@@ -2102,8 +2099,5 @@ STMT_DISPATCH_TABLE = {
     "create_forwarder_to": CreateForwarderTo(),
 }
 
-BUILTIN_FUNCTIONS = {**STMT_DISPATCH_TABLE, **DISPATCH_TABLE}.keys()
-
-
 def get_builtin_functions():
-    return {**STMT_DISPATCH_TABLE, **DISPATCH_TABLE}
+    return BUILTIN_FUNCTIONS.copy()

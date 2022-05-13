@@ -2,7 +2,6 @@ import vyper.codegen.events as events
 import vyper.utils as util
 from vyper import ast as vy_ast
 from vyper.address_space import MEMORY, STORAGE
-from vyper.builtin_functions import STMT_DISPATCH_TABLE
 from vyper.codegen import external_call, self_call
 from vyper.codegen.context import Constancy, Context
 from vyper.codegen.core import (
@@ -46,8 +45,7 @@ class Stmt:
         self.ir_node.source_pos = getpos(self.stmt)
 
     def parse_Expr(self):
-        # TODO: follow analysis modules and dispatch down to expr.py
-        return Stmt(self.stmt.value, self.context).ir_node
+        return Expr(self.stmt.value, self.context).ir_node
 
     def parse_Pass(self):
         return IRnode.from_list("pass")
@@ -127,43 +125,6 @@ class Stmt:
                 data_ir.append(arg)
 
         return events.ir_node_for_log(self.stmt, event, topic_ir, data_ir, self.context)
-
-    def parse_Call(self):
-        # TODO use expr.func.type.is_internal once type annotations
-        # are consistently available.
-        is_self_function = (
-            (isinstance(self.stmt.func, vy_ast.Attribute))
-            and isinstance(self.stmt.func.value, vy_ast.Name)
-            and self.stmt.func.value.id == "self"
-        )
-
-        if isinstance(self.stmt.func, vy_ast.Name):
-            funcname = self.stmt.func.id
-            return STMT_DISPATCH_TABLE[funcname].build_IR(self.stmt, self.context)
-
-        elif isinstance(self.stmt.func, vy_ast.Attribute) and self.stmt.func.attr in (
-            "append",
-            "pop",
-        ):
-            # TODO: consider moving this to builtins
-            darray = Expr(self.stmt.func.value, self.context).ir_node
-            args = [Expr(x, self.context).ir_node for x in self.stmt.args]
-            if self.stmt.func.attr == "append":
-                # sanity checks
-                assert len(args) == 1
-                arg = args[0]
-                assert isinstance(darray.typ, DArrayType)
-                check_assign(dummy_node_for_type(darray.typ.subtype), dummy_node_for_type(arg.typ))
-
-                return append_dyn_array(darray, arg)
-            else:
-                assert len(args) == 0
-                return pop_dyn_array(darray, return_popped_item=False)
-
-        elif is_self_function:
-            return self_call.ir_for_self_call(self.stmt, self.context)
-        else:
-            return external_call.ir_for_external_call(self.stmt, self.context)
 
     def _assert_reason(self, test_expr, msg):
         if isinstance(msg, vy_ast.Name) and msg.id == "UNREACHABLE":

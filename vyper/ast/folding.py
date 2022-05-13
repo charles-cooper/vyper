@@ -2,7 +2,7 @@ import copy
 from typing import Union
 
 from vyper.ast import nodes as vy_ast
-from vyper.builtin_functions import DISPATCH_TABLE
+from vyper.builtin_functions import get_builtin_functions
 from vyper.exceptions import UnfoldableNode, UnknownType
 from vyper.semantics.types.bases import BaseTypeDefinition, DataLocation
 from vyper.semantics.types.utils import get_type_from_annotation
@@ -123,7 +123,7 @@ def replace_builtin_functions(vyper_module: vy_ast.Module) -> int:
             continue
 
         name = node.func.id
-        func = DISPATCH_TABLE.get(name)
+        func = get_builtin_functions().get(name)
         if func is None or not hasattr(func, "evaluate"):
             continue
         try:

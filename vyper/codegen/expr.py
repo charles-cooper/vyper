@@ -174,7 +174,7 @@ class Expr:
         self.context = context
 
         if isinstance(node, IRnode):
-            # TODO this seems bad
+            # CMC 2022-05-12 TODO bad design, factor this out. (currently used for AugAssign)
             self.ir_node = node
             return
 
@@ -915,13 +915,14 @@ class Expr:
     # Function calls
     def parse_Call(self):
         # TODO check out this inline import
-        from vyper.builtin_functions import DISPATCH_TABLE
+        from vyper.builtin_functions import get_builtin_functions
 
         if isinstance(self.expr.func, vy_ast.Name):
             function_name = self.expr.func.id
 
-            if function_name in DISPATCH_TABLE:
-                return DISPATCH_TABLE[function_name].build_IR(self.expr, self.context)
+            builtins = get_builtin_functions()
+            if function_name in builtins:
+                return builtins[function_name].build_IR(self.expr, self.context)
 
             # Struct constructors do not need `self` prefix.
             elif function_name in self.context.structs:
@@ -936,15 +937,15 @@ class Expr:
                     arg_ir.typ = InterfaceType(function_name)  # Cast to Correct interface type.
                     return arg_ir
 
-        elif isinstance(self.expr.func, vy_ast.Attribute) and self.expr.func.attr == "pop":
+        elif isinstance(self.expr.func, vy_ast.Attribute) and self.expr.func.attr in ("pop", "append"):
             # TODO consider moving this to builtins
             darray = Expr(self.expr.func.value, self.context).ir_node
             assert len(self.expr.args) == 0
             assert isinstance(darray.typ, DArrayType)
-            return pop_dyn_array(
-                darray,
-                return_popped_item=True,
-            )
+            # if this Expr is a straight Stmt -- no need to do anything
+            # with the popped item.
+            return_popped_item = not self.is_stmt
+            return pop_dyn_array(darray, return_popped_item=return_popped_item)
 
         elif (
             # TODO use expr.func.type.is_internal once
