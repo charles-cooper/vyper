@@ -243,6 +243,14 @@ class IRnode:
             elif self.value == "deploy":
                 self.valency = 0
                 self._gas = NullAttractor()  # unknown
+            elif self.value == "val":
+                # usage: (val x <expr>)
+                _check(len(self.args) == 2, "val takes two args")
+                _check(len(self.args[0].args) == 0 and isinstance(self.args[0].value, str), "first argument to val must be a string")
+                _check(self.args[1].valency == 1, "second argument to val must return 1 stack item")
+                self.valency = 0
+                self._gas = 0
+
             # Stack variables
             else:
                 self.valency = 1
@@ -278,6 +286,13 @@ class IRnode:
     @property
     def is_literal(self):
         return isinstance(self.value, int) or self.value == "multi"
+
+    @property
+    def is_variable(self):
+        ret = isinstance(self.value, str) and self.value.lower() not in VALID_IR_MACROS and self.value.upper() not in get_ir_opcodes()
+        if ret:
+            assert len(self.args) == 0, self
+        return ret
 
     @property
     def is_pointer(self):
