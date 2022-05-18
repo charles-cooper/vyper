@@ -5,6 +5,9 @@ from vyper.codegen.ir_node import IRnode
 from vyper.evm.opcodes import get_opcodes
 from vyper.exceptions import CodegenPanic, CompilerPanic
 from vyper.utils import MemoryPositions
+from typing import Dict,Set,List
+
+from dataclasses import dataclass, field
 
 PUSH_OFFSET = 0x5F
 DUP_OFFSET = 0x7F
@@ -89,44 +92,6 @@ def _runtime_code_offsets(ctor_mem_size, runtime_codelen):
     return runtime_code_start, runtime_code_end
 
 
-# temporary optimization to handle stack items for return sequences
-# like `return return_ofst return_len`. this is kind of brittle because
-# it assumes the arguments are already on the stack, to be replaced
-# by better liveness analysis.
-# NOTE: modifies input in-place
-def _rewrite_return_sequences(ir_node, label_params=None):
-    args = ir_node.args
-
-    if ir_node.value == "return":
-        if args[0].value == "ret_ofst" and args[1].value == "ret_len":
-            ir_node.args[0].value = "pass"
-            ir_node.args[1].value = "pass"
-    if ir_node.value == "exit_to":
-        # handle exit from private function
-        if args[0].value == "return_pc":
-            ir_node.value = "jump"
-            args[0].value = "pass"
-        else:
-            # handle jump to cleanup
-            assert is_symbol(args[0].value)
-            ir_node.value = "seq"
-
-            _t = ["seq"]
-            if "return_buffer" in label_params:
-                _t.append(["pop", "pass"])
-
-            dest = args[0].value[5:]  # `_sym_foo` -> `foo`
-            more_args = ["pass" if t.value == "return_pc" else t for t in args[1:]]
-            _t.append(["goto", dest] + more_args)
-            ir_node.args = IRnode.from_list(_t, source_pos=ir_node.source_pos).args
-
-    if ir_node.value == "label":
-        label_params = set(t.value for t in ir_node.args[1].args)
-
-    for t in args:
-        _rewrite_return_sequences(t, label_params)
-
-
 def _assert_false():
     # use a shared failure block for common case of assert(x).
     # in the future we might want to change the code
@@ -183,14 +148,91 @@ def apply_line_numbers(func):
 
     return apply_line_no_wrapper
 
+@dataclass
+class LoopInfo:
+    loop_start: str
+    loop_continue: str
+    loop_exit: str
+
+@dataclass
+class VariableInfo:
+    height: int
+    uses_left: int
+
+
+class Variables(dict):
+    def __init__(self, total_uses = None):
+        # dictionary carrying around the total number of times a variable
+        # is used.
+        self.total_uses = total_uses
+        if total_uses is None:
+            self.total_uses = {}
+
+    @contextlib.contextmanager
+    def use_analysis(self, analysis):
+        try:
+            tmp = self.total_uses
+            self.total_uses = analysis
+            yield
+        finally:
+            self.total_uses = tmp
+
+    def height_of(self, val):
+        stack_depth = len(self)
+        return stack_depth - self[val].height
+
+    def create_var(self, val):
+        self[val] = VariableInfo(len(self), self.total_uses[val])
+
+    def use_var(self, val):
+        height = self.height_of(val)
+        self[val].uses_left -= 1
+        if self[val].uses_left == 0:
+            del self[val]
+            # TODO: update variable at height `height`
+            return f"SWAP{height}"
+        return f"DUP{height}"
+
+    def swap(self, val1, val2):
+        tmp = self[val1].height
+        self[val1].height = self[val2].height
+        self[val2].height = tmp
+
+
+def def_use_analysis(code, state=None):
+    if state is None:
+        state = {}
+
+    if code.value in ("seq", "label"):
+        # fresh block
+        state = {}
+        _def_use_analysis(code, state)
+        code.variable_analysis = state
+    else:
+        _def_use_analysis(code, state)
+
+    return state
+
+def _def_use_analysis(code, state):
+
+    if code.value == "val":
+        state[code.args[0].value] = 0
+
+    elif code.value == "var_list":
+        for t in code.args:
+            assert t.is_variable
+            state[t.value] = 0
+    elif code.is_variable:
+        state[code.value] += 1
+    else:
+        for arg in code.args:
+            _def_use_analysis(arg, state)
 
 @apply_line_numbers
 def compile_to_assembly(code, no_optimize=False):
-    # don't overwrite ir since the original might need to be output, e.g. `-f ir,asm`
-    code = copy.deepcopy(code)
-    _rewrite_return_sequences(code)
+    def_use_analysis(code)
 
-    res = _compile_to_assembly(code)
+    res = _compile_to_assembly(code, CompilationState())
 
     _add_postambles(res)
     if not no_optimize:
@@ -198,15 +240,21 @@ def compile_to_assembly(code, no_optimize=False):
     return res
 
 
+@dataclass
+class CompilationState:
+    variables: Variables = field(default_factory = Variables)
+    labels: Set[str] = field(default_factory = set)
+    loop_info: List[LoopInfo] = field(default_factory = list)
+
+
 # Compiles IR to assembly
 @apply_line_numbers
-def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=None, height=0):
-    if withargs is None:
-        withargs = {}
-    if not isinstance(withargs, dict):
-        raise CompilerPanic(f"Incorrect type for withargs: {type(withargs)}")
+def _compile_to_assembly(code, compile_state):
 
-    def _data_ofst_of(sym, ofst, height_):
+    def _compile(code):
+        return _compile_to_assembly(code, compile_state)
+
+    def _data_ofst_of(sym, ofst):
         # e.g. _OFST _sym_foo 32
         assert is_symbol(sym) or is_mem_sym(sym)
         if isinstance(ofst.value, int):
@@ -214,25 +262,15 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
             return ["_OFST", sym, ofst.value]
         else:
             # if we can't resolve at compile time, resolve at runtime
-            ofst = _compile_to_assembly(ofst, withargs, existing_labels, break_dest, height_)
+            ofst = _compile(ofst)
             return ofst + [sym, "ADD"]
 
-    def _height_of(witharg):
-        ret = height - withargs[witharg]
-        if ret > 16:
-            raise Exception("With statement too deep")
-        return ret
-
-    if existing_labels is None:
-        existing_labels = set()
-    if not isinstance(existing_labels, set):
-        raise CompilerPanic(f"Incorrect type for existing_labels: {type(existing_labels)}")
 
     # Opcodes
     if isinstance(code.value, str) and code.value.upper() in get_opcodes():
         o = []
         for i, c in enumerate(code.args[::-1]):
-            o.extend(_compile_to_assembly(c, withargs, existing_labels, break_dest, height + i))
+            o.extend(_compile_to_assembly(c, compile_state))
         o.append(code.value.upper())
         return o
 
@@ -245,23 +283,11 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         return PUSH(code.value % 2 ** 256)
 
     # Variables connected to with statements
-    elif isinstance(code.value, str) and code.value in withargs:
-        return ["DUP" + str(_height_of(code.value))]
-
-    # Setting variables connected to with statements
-    elif code.value == "set":
-        if len(code.args) != 2 or code.args[0].value not in withargs:
-            raise Exception("Set expects two arguments, the first being a stack variable")
-        if height - withargs[code.args[0].value] > 16:
-            raise Exception("With statement too deep")
-        return _compile_to_assembly(code.args[1], withargs, existing_labels, break_dest, height) + [
-            "SWAP" + str(height - withargs[code.args[0].value]),
-            "POP",
-        ]
+    elif isinstance(code.value, str) and code.value in compile_state.variables:
+        return [compile_state.variables.use_var(code.value)]
 
     # Pass statements
-    # TODO remove "dummy"; no longer needed
-    elif code.value in ("pass", "dummy"):
+    elif code.value in ("pass"):
         return []
 
     # "mload" from data section of the currently executing code
@@ -271,7 +297,7 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         o = []
         # codecopy 32 bytes to FREE_VAR_SPACE, then mload from FREE_VAR_SPACE
         o.extend(PUSH(32))
-        o.extend(_data_ofst_of("_sym_code_end", loc, height + 1))
+        o.extend(_data_ofst_of("_sym_code_end", loc))
         o.extend(PUSH(MemoryPositions.FREE_VAR_SPACE) + ["CODECOPY"])
         o.extend(PUSH(MemoryPositions.FREE_VAR_SPACE) + ["MLOAD"])
         return o
@@ -283,9 +309,9 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         len_ = code.args[2]
 
         o = []
-        o.extend(_compile_to_assembly(len_, withargs, existing_labels, break_dest, height))
-        o.extend(_data_ofst_of("_sym_code_end", src, height + 1))
-        o.extend(_compile_to_assembly(dst, withargs, existing_labels, break_dest, height + 2))
+        o.extend(_compile(len_))
+        o.extend(_data_ofst_of("_sym_code_end", src))
+        o.extend(_compile(dst))
         o.extend(["CODECOPY"])
         return o
 
@@ -294,7 +320,7 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         loc = code.args[0]
 
         o = []
-        o.extend(_data_ofst_of("_mem_deploy_end", loc, height))
+        o.extend(_data_ofst_of("_mem_deploy_end", loc))
         o.append("MLOAD")
 
         return o
@@ -305,8 +331,8 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         val = code.args[1]
 
         o = []
-        o.extend(_compile_to_assembly(val, withargs, existing_labels, break_dest, height))
-        o.extend(_data_ofst_of("_mem_deploy_end", loc, height + 1))
+        o.extend(_compile(val))
+        o.extend(_data_ofst_of("_mem_deploy_end", loc))
         o.append("MSTORE")
 
         return o
@@ -318,22 +344,23 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
     # If statements (2 arguments, ie. if x: y)
     elif code.value == "if" and len(code.args) == 2:
         o = []
-        o.extend(_compile_to_assembly(code.args[0], withargs, existing_labels, break_dest, height))
+        o.extend(_compile(code.args[0]))
         end_symbol = mksymbol("join")
         o.extend(["ISZERO", end_symbol, "JUMPI"])
-        o.extend(_compile_to_assembly(code.args[1], withargs, existing_labels, break_dest, height))
+        o.extend(_compile(code.args[1]))
         o.extend([end_symbol, "JUMPDEST"])
         return o
+
     # If statements (3 arguments, ie. if x: y, else: z)
     elif code.value == "if" and len(code.args) == 3:
         o = []
-        o.extend(_compile_to_assembly(code.args[0], withargs, existing_labels, break_dest, height))
+        o.extend(_compile(code.args[0]))
         mid_symbol = mksymbol("else")
         end_symbol = mksymbol("join")
         o.extend(["ISZERO", mid_symbol, "JUMPI"])
-        o.extend(_compile_to_assembly(code.args[1], withargs, existing_labels, break_dest, height))
+        o.extend(_compile(code.args[1]))
         o.extend([end_symbol, "JUMP", mid_symbol, "JUMPDEST"])
-        o.extend(_compile_to_assembly(code.args[2], withargs, existing_labels, break_dest, height))
+        o.extend(_compile(code.args[2]))
         o.extend([end_symbol, "JUMPDEST"])
         return o
 
@@ -357,35 +384,23 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         rounds_bound = code.args[3]
         body = code.args[4]
 
-        entry_dest, continue_dest, exit_dest = (
+        compile_state.loop_info.append(LoopInfo(
             mksymbol("loop_start"),
             mksymbol("loop_continue"),
             mksymbol("loop_exit"),
-        )
+        ))
 
         # stack: []
-        o.extend(
-            _compile_to_assembly(
-                start,
-                withargs,
-                existing_labels,
-                break_dest,
-                height,
-            )
-        )
-
-        o.extend(_compile_to_assembly(rounds, withargs, existing_labels, break_dest, height + 1))
+        o.extend(_compile(start))
+        o.extend(_compile(rounds))
 
         # stack: i
 
         # assert rounds <= round_bound
         if rounds != rounds_bound:
             # stack: i, rounds
-            o.extend(
-                _compile_to_assembly(
-                    rounds_bound, withargs, existing_labels, break_dest, height + 2
-                )
-            )
+            o.extend(_compile(rounds_bound))
+
             # stack: i, rounds, rounds_bound
             # assert rounds <= rounds_bound
             # TODO this runtime assertion should never fail for
@@ -406,23 +421,17 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
         if i_name.value in withargs:
             raise CompilerPanic(f"shadowed loop variable {i_name}")
-        withargs[i_name.value] = height + 1
+
+        compile_state.variables.create_var(i_name.value)
 
         # stack: exit_i, i
         o.extend([entry_dest, "JUMPDEST"])
-        o.extend(
-            _compile_to_assembly(
-                body,
-                withargs,
-                existing_labels,
-                (exit_dest, continue_dest, height + 2),
-                height + 2,
-            )
-        )
+        o.extend(_compile(body))
 
-        del withargs[i_name.value]
+        compile_state.variables.kill_var(i_name.value)
 
         # clean up any stack items left by body
+        # TODO: no stack items should be left.
         o.extend(["POP"] * body.valency)
 
         # stack: exit_i, i
@@ -438,20 +447,17 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
     # Continue to the next iteration of the for loop
     elif code.value == "continue":
-        if not break_dest:
-            raise CompilerPanic("Invalid break")
-        dest, continue_dest, break_height = break_dest
-        return [continue_dest, "JUMP"]
+        return [compile_info.loop_info[-1].continue_dest, "JUMP"]
+
     # Break from inside a for loop
     elif code.value == "break":
-        if not break_dest:
-            raise CompilerPanic("Invalid break")
-        dest, continue_dest, break_height = break_dest
+        dest = compile_info.loop_info[-1].break_dest
 
         n_local_vars = height - break_height
         # clean up any stack items declared in the loop body
         cleanup_local_vars = ["POP"] * n_local_vars
         return cleanup_local_vars + [dest, "JUMP"]
+
     # Break from inside one or more for loops prior to a return statement inside the loop
     elif code.value == "cleanup_repeat":
         if not break_dest:
@@ -464,29 +470,11 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         if "return_pc" in withargs:
             break_height -= 1
         return ["POP"] * break_height
-    # With statements
-    elif code.value == "with":
+
+    elif code.value == "val":
         o = []
-        o.extend(_compile_to_assembly(code.args[1], withargs, existing_labels, break_dest, height))
-        old = withargs.get(code.args[0].value, None)
-        withargs[code.args[0].value] = height
-        o.extend(
-            _compile_to_assembly(
-                code.args[2],
-                withargs,
-                existing_labels,
-                break_dest,
-                height + 1,
-            )
-        )
-        if code.args[2].valency:
-            o.extend(["SWAP1", "POP"])
-        else:
-            o.extend(["POP"])
-        if old is not None:
-            withargs[code.args[0].value] = old
-        else:
-            del withargs[code.args[0].value]
+        o.extend(_compile(code.args[1]))
+        compile_state.variables.create_var(code.args[0].value)
         return o
 
     # runtime statement (used to deploy runtime code)
@@ -530,12 +518,14 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
     # Seq (used to piece together multiple statements)
     elif code.value == "seq":
-        o = []
-        for arg in code.args:
-            o.extend(_compile_to_assembly(arg, withargs, existing_labels, break_dest, height))
-            if arg.valency == 1 and arg != code.args[-1]:
-                o.append("POP")
+        with compile_state.variables.use_analysis(code.variable_analysis):
+            o = []
+            for arg in code.args:
+                o.extend(_compile(arg))
+                if arg.valency == 1:
+                    o.append("POP")
         return o
+
     # Seq without popping.
     # Assure (if false, invalid opcode)
     elif code.value == "assert_unreachable":
@@ -672,9 +662,11 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
             o.extend(_compile_to_assembly(c, withargs, existing_labels, break_dest, height + i))
         o.extend(["_sym_" + str(code.args[0]), "JUMP"])
         return o
+
     # push a literal symbol
     elif isinstance(code.value, str) and is_symbol(code.value):
         return [code.value]
+
     # set a symbol as a location.
     elif code.value == "label":
         label_name = code.args[0].value
