@@ -188,8 +188,11 @@ class Variables(dict):
         height = self.height_of(val)
         self[val].uses_left -= 1
         if self[val].uses_left == 0:
+            # last use. instead of DUP, SWAP with the top of stack
             del self[val]
-            # TODO: update variable at height `height`
+            for k in self.keys():
+                if self[k].height == height:
+                    self[k].height = 0
             return f"SWAP{height}"
         return f"DUP{height}"
 
