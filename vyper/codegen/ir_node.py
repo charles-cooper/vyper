@@ -6,6 +6,7 @@ from vyper.address_space import AddrSpace
 from vyper.codegen.types import BaseType, NodeType, ceil32
 from vyper.compiler.settings import VYPER_COLOR_OUTPUT
 from vyper.evm.opcodes import get_ir_opcodes
+from vyper.evm.effects import EVMEffects
 from vyper.exceptions import CodegenPanic, CompilerPanic
 from vyper.utils import VALID_IR_MACROS, cached_property
 
@@ -279,10 +280,27 @@ class IRnode:
     def is_literal(self):
         return isinstance(self.value, int) or self.value == "multi"
 
+    @cached_property
+    def effects(self) -> EVMEffects:
+        child_effects = EVMEffects.EffectFree
+        for arg in self.args:
+            child_effects |= arg.effects
+
+        if self.value == "sload":
+            op_effects = EVMEffects.StorageRead
+        elif self.value == "sstore":
+            op_effects = EVMEffects.StorageWrite
+        elif self.value == "staticcall":
+            op_effects = EVMEffects.StaticCall
+        elif self.value == "call":
+            op_effects = EVMEffects.Call
+        else:
+            op_effects = EVMEffects.EffectFree
+
+        return op_effects | child_effects
+
     @property
     def is_pointer(self):
-        # not used yet but should help refactor/clarify downstream code
-        # eventually
         return self.location is not None
 
     # This function is slightly confusing but abstracts a common pattern:
