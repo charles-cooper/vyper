@@ -982,7 +982,7 @@ def assembly_to_evm(assembly, start_pos=0):
             # [_OFST, _sym_foo, bar] -> PUSH2 (foo+bar)
             # [_OFST, _mem_foo, bar] -> PUSH4 (foo+bar)
             pos -= 1
-        elif item == "BLANK":
+        elif item in ("BLANK", "SWAP0"):
             pos += 0
         elif isinstance(item, str) and item.startswith("_DEPLOY_MEM_OFST_"):
             # _DEPLOY_MEM_OFST is assembly magic which will
@@ -1019,8 +1019,11 @@ def assembly_to_evm(assembly, start_pos=0):
             to_skip -= 1
             continue
 
-        if item in ("DEBUG", "BLANK"):
-            continue  # skippable opcodes
+        if item in ("DEBUG", "BLANK", "SWAP0"):
+            # skippable opcodes
+            # note: assembly generator might generate SWAP0 for clarity.
+            # treat it as a no-op.
+            continue
 
         elif isinstance(item, str) and item.startswith("_DEPLOY_MEM_OFST_"):
             continue
@@ -1051,10 +1054,7 @@ def assembly_to_evm(assembly, start_pos=0):
         elif item[:3] == "DUP":
             o += bytes([DUP_OFFSET + int(item[3:])])
         elif item[:4] == "SWAP":
-            # note: assembly generator might generate SWAP0 for clarity.
-            # treat it as a no-op.
-            if int(item[4:]) != 0:
-                o += bytes([SWAP_OFFSET + int(item[4:])])
+            o += bytes([SWAP_OFFSET + int(item[4:])])
         elif isinstance(item, list):
             o += runtime_code
         else:
