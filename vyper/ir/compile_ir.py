@@ -182,7 +182,10 @@ class Variables(dict):
         stack_depth = len(self)
         return stack_depth - self[val].height
 
-    def create_var(self, val):
+    def create_val(self, val):
+        if val in self:
+            raise CompilerPanic(f"redefined val: {val}")
+
         self[val] = VariableInfo(len(self), self.total_uses[val])
 
     def use_var(self, val):
@@ -440,7 +443,7 @@ def _compile_to_assembly(code, compile_state):
         if i_name.value in withargs:
             raise CompilerPanic(f"shadowed loop variable {i_name}")
 
-        compile_state.variables.create_var(i_name.value)
+        compile_state.variables.create_val(i_name.value)
 
         # stack: exit_i, i
         o.extend([entry_dest, "JUMPDEST"])
@@ -492,7 +495,7 @@ def _compile_to_assembly(code, compile_state):
     elif code.value == "val":
         o = []
         o.extend(_compile(code.args[1]))
-        compile_state.variables.create_var(code.args[0].value)
+        compile_state.variables.create_val(code.args[0].value)
         return o
 
     # runtime statement (used to deploy runtime code)
