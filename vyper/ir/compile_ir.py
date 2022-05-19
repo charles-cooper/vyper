@@ -161,10 +161,19 @@ class VariableInfo:
     uses_left: int
 
 
-# swap the i'th and j'th items on the stack
-def _swap_ij(i, j):
-    ret = [f"SWAP{i - 1}", f"SWAP{j - 1}", f"SWAP{i - 1}"]
-    return [t for t in ret if t != "SWAP0"]
+@dataclass
+class Swap:
+    i: int
+    j: int
+    def __init__(self, i, j):
+        self.i = min(i, j) - 1
+        self.j = max(i, j) - 1
+
+
+@dataclass
+class Dup:
+    i: int
+
 
 class Variables(dict):
     def __init__(self, total_uses = None):
@@ -216,9 +225,9 @@ class Variables(dict):
 
             del self[val]
 
-            return _swap_ij(height, to_swap)
+            return [Swap(height, to_swap)]
 
-        return [f"DUP{height}"]
+        return [Dup(height)]
 
     def swap(self, val1, val2):
         tmp = self[val1].height
@@ -448,7 +457,7 @@ def _compile_to_assembly(code, compile_state):
             o.extend(["DUP2", "ADD"])
 
         # stack: i, exit_i
-        o.extend(["SWAP1"])
+        o.extend([Swap(0, 1)])
 
         if i_name.value in withargs:
             raise CompilerPanic(f"shadowed loop variable {i_name}")
@@ -899,16 +908,21 @@ def _stack_peephole_opts(assembly):
     changed = False
     i = 0
     while i < len(assembly) - 1:
-        if isinstance(assembly[i], str) and assembly[i].startswith("SWAP") and assembly[i] == assembly[i+1]:
+        # DUP_N POP => noop
+        if isinstance(assembly[i], Dup) and assembly[i+1] == "POP":
             changed = True
-            del assembly[i:i+2]
+            del assembly[i: i + 2]
             continue
 
-        # DUP_N followed by SWAP_N or POP => DUP_N
-        if isinstance(assembly[i], str) and assembly[i].startswith("DUP") and (assembly[i].replace("DUP", "SWAP") == assembly[i+1] or "POP" == assembly[i+1]):
-            # DUP_N SWAP_N == DUP_N
+        # DUP_N SWAP_I_J => DUP_N
+        if isinstance(assembly[i], Dup) and isinstance(assembly[i+1], Swap) and assembly[i].i + 1 in (assembly[i+1].i, assembly[i+1].j):
             changed = True
-            del assembly[i + 1]
+            del assembly[i+1]
+            continue
+
+        if isinstance(assembly[i], Swap) and isinstance(assembly[i+1], Swap) and assembly[i] == assembly[i+1]:
+            changed = True
+            del assembly[i:i+2]
             continue
 
         i += 1
@@ -990,8 +1004,14 @@ def assembly_to_evm(assembly, start_pos=0):
             # [_OFST, _sym_foo, bar] -> PUSH2 (foo+bar)
             # [_OFST, _mem_foo, bar] -> PUSH4 (foo+bar)
             pos -= 1
-        elif item in ("BLANK", "SWAP0"):
+        elif item in ("BLANK"):
             pos += 0
+        elif isinstance(item, Swap):
+            if item.i == 0:
+                pos += 1
+            else:
+                pos += 3
+
         elif isinstance(item, str) and item.startswith("_DEPLOY_MEM_OFST_"):
             # _DEPLOY_MEM_OFST is assembly magic which will
             # get removed during final assembly-to-bytecode
@@ -1027,10 +1047,8 @@ def assembly_to_evm(assembly, start_pos=0):
             to_skip -= 1
             continue
 
-        if item in ("DEBUG", "BLANK", "SWAP0"):
+        if item in ("DEBUG", "BLANK"):
             # skippable opcodes
-            # note: assembly generator might generate SWAP0 for clarity.
-            # treat it as a no-op.
             continue
 
         elif isinstance(item, str) and item.startswith("_DEPLOY_MEM_OFST_"):
@@ -1061,8 +1079,14 @@ def assembly_to_evm(assembly, start_pos=0):
             o += bytes([PUSH_OFFSET + int(item[4:])])
         elif item[:3] == "DUP":
             o += bytes([DUP_OFFSET + int(item[3:])])
-        elif item[:4] == "SWAP":
-            o += bytes([SWAP_OFFSET + int(item[4:])])
+        elif isinstance(item, Dup):
+            o += bytes([DUP_OFFSET + item.i])
+        elif isinstance(item, Swap):
+            if item.i == 0:
+                o += bytes([SWAP_OFFSET + item.j])
+            else:
+                o += bytes([SWAP_OFFSET + item.i, SWAP_OFFSET + item.j, SWAP_OFFSET + item.i])
+
         elif isinstance(item, list):
             o += runtime_code
         else:
