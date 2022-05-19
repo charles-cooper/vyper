@@ -160,8 +160,11 @@ class VariableInfo:
     height: int
     uses_left: int
 
-def _SWAP(height):
-    return f"SWAP{height - 1}"
+
+# swap the i'th and j'th items on the stack
+def _swap_ij(i, j):
+    ret = [f"SWAP{i - 1}", f"SWAP{j - 1}", f"SWAP{i - 1}"]
+    return [t for t in ret if t != "SWAP0"]
 
 class Variables(dict):
     def __init__(self, total_uses = None):
@@ -213,10 +216,7 @@ class Variables(dict):
 
             del self[val]
 
-            swap_height = height
-
-            ret = [_SWAP(height), _SWAP(to_swap), _SWAP(height)]
-            return [t for t in ret if t != "SWAP0"]
+            return _swap_ij(height, to_swap)
 
         return [f"DUP{height}"]
 
