@@ -6,6 +6,7 @@ from vyper.evm.opcodes import get_opcodes
 from vyper.exceptions import CodegenPanic, CompilerPanic
 from vyper.utils import MemoryPositions
 from typing import Dict,Set,List
+import contextlib
 
 from dataclasses import dataclass, field
 
@@ -186,15 +187,29 @@ class Variables(dict):
 
     def use_var(self, val):
         height = self.height_of(val)
+
         self[val].uses_left -= 1
+
         if self[val].uses_left == 0:
             # last use. instead of DUP, SWAP with the top of stack
-            del self[val]
+
+            # update our model of variables to the state it will
+            # be after the SWAP
+            found = False
             for k in self.keys():
-                if self[k].height == height:
-                    self[k].height = 0
-            return f"SWAP{height}"
-        return f"DUP{height}"
+                if self[k].height == 0:
+                    self[k].height = self[val].height
+                    found = True
+                self[k].height -= 1
+
+            assert found, (val, k, self)
+
+            del self[val]
+
+            swap_height = height - 1
+            return [f"SWAP{swap_height}"]
+
+        return [f"DUP{height}"]
 
     def swap(self, val1, val2):
         tmp = self[val1].height
@@ -287,7 +302,7 @@ def _compile_to_assembly(code, compile_state):
 
     # Variables connected to with statements
     elif isinstance(code.value, str) and code.value in compile_state.variables:
-        return [compile_state.variables.use_var(code.value)]
+        return compile_state.variables.use_var(code.value)
 
     # Pass statements
     elif code.value in ("pass"):
@@ -1033,7 +1048,10 @@ def assembly_to_evm(assembly, start_pos=0):
         elif item[:3] == "DUP":
             o += bytes([DUP_OFFSET + int(item[3:])])
         elif item[:4] == "SWAP":
-            o += bytes([SWAP_OFFSET + int(item[4:])])
+            # note: assembly generator might generate SWAP0 for clarity.
+            # treat it as a no-op.
+            if int(item[4:]) != 0:
+                o += bytes([SWAP_OFFSET + int(item[4:])])
         elif isinstance(item, list):
             o += runtime_code
         else:
