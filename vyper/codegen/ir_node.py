@@ -334,6 +334,14 @@ class IRnode:
             and self.value.lower() not in do_not_cache
         )
 
+    _side_effect_ops = {"sstore", "mstore", "goto", "exit_to", "call", "callcode", "delegatecall", "selfdestruct", "create", "create2"}
+    @cached_property
+    def has_side_effects(self):
+        # returns true if there are any *STORE or non-staticcall *CALL opcodes
+        if isinstance(self.value, str) and self.value.lower in self._side_effect_ops:
+            return True
+        return any(arg.has_side_effects for arg in self.args)
+
     def unique_symbols(self):
         ret = set()
         if self.value == "unique_symbol":

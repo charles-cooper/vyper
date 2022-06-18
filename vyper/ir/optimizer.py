@@ -203,12 +203,10 @@ def _optimize_binop(binop, args, ann, parent_op):
         new_ann = f"{ann} ({new_ann})"
 
     def finalize(new_val, new_args):
-        rollback = (args[0].is_complex_ir and not _deep_contains(new_args, args[0])) or (
-            args[1].is_complex_ir and not _deep_contains(new_args, args[1])
-        )
-
-        if rollback:
-            return None
+        if (args[0].has_side_effects and not _deep_contains(new_args, args[0])):
+            raise StaticAssertionException(f"tried to optimize {binop} {args}, but {args[0]} gets optimized out!", args[0].source_pos)
+        if args[1].has_side_effects and not _deep_contains(new_args, args[1]):
+            raise StaticAssertionException(f"tried to optimize {binop} {args}, but {args[1]} gets optimized out!", args[1].source_pos)
 
         return new_val, new_args, new_ann
 
