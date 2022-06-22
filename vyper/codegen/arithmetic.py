@@ -141,20 +141,16 @@ def safe_add(x, y):
 
     # bits == 256
     with res.cache_when_complex("ans") as (b1, res):
-        if num_info.is_signed:
-            # if r < 0:
-            #   ans < l
-            # else:
-            #   ans >= l  # aka (iszero (ans < l))
-            # aka: (r < 0) == (ans < l)
-            ok = ["eq", ["slt", y, 0], ["slt", res, x]]
-        else:
-            # note this is "equivalent" to the unsigned form
-            # of the above (because y < 0 == False)
-            #       ["eq", ["lt", y, 0], ["lt", res, x]]
-            # TODO push down into optimizer rules.
-            ok = ["ge", res, x]
+        LT = "slt" if num_info.is_signed else "lt"
 
+        # if r < 0:
+        #   ans < l
+        # else:
+        #   ans >= l  # aka (iszero (ans < l))
+        # aka: (r < 0) == (ans < l)
+        # note in the unsigned case, optimizer simplifies to (iszero (ans < l)).
+
+        ok = ["eq", [LT, y, 0], [LT, res, x]]
         ret = IRnode.from_list(["seq", ["assert", ok], res])
         return b1.resolve(ret)
 
@@ -170,19 +166,15 @@ def safe_sub(x, y):
 
     # bits == 256
     with res.cache_when_complex("ans") as (b1, res):
-        if num_info.is_signed:
-            # if r < 0:
-            #   ans > l
-            # else:
-            #   ans <= l  # aka (iszero (ans > l))
-            # aka: (r < 0) == (ans > l)
-            ok = ["eq", ["slt", y, 0], ["sgt", res, x]]
-        else:
-            # note this is "equivalent" to the unsigned form
-            # of the above (because y < 0 == False)
-            #       ["eq", ["lt", y, 0], ["gt", res, x]]
-            # TODO push down into optimizer rules.
-            ok = ["le", res, x]
+        LT = "slt" if num_info.is_signed else "lt"
+
+        # if r < 0:
+        #   ans > l
+        # else:
+        #   ans <= l  # aka (iszero (ans > l))
+        # aka: (r < 0) == (ans > l)
+        # note in the unsigned case, optimizes to (iszero (lt res x))
+        ok = ["eq", [LT, y, 0], [LT, res, x]]
 
         ret = IRnode.from_list(["seq", ["assert", ok], res])
         return b1.resolve(ret)
