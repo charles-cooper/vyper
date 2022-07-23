@@ -2,6 +2,7 @@ import copy
 
 from vyper import ast as vy_ast
 from vyper.exceptions import CompilerPanic
+from vyper.utils import timer
 
 
 def expand_annotated_ast(vyper_module: vy_ast.Module) -> None:
@@ -16,8 +17,10 @@ def expand_annotated_ast(vyper_module: vy_ast.Module) -> None:
     vyper_module : Module
         Top-level Vyper AST node that has been type-checked and annotated.
     """
-    generate_public_variable_getters(vyper_module)
-    remove_unused_statements(vyper_module)
+    with timer("public variable getters"):
+        generate_public_variable_getters(vyper_module)
+    with timer("remove_unused_statements"):
+        remove_unused_statements(vyper_module)
 
 
 def generate_public_variable_getters(vyper_module: vy_ast.Module) -> None:
