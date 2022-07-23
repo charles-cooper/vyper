@@ -10,7 +10,7 @@ from vyper.codegen.ir_node import IRnode
 from vyper.ir import compile_ir, optimizer
 from vyper.semantics import set_data_positions, validate_semantics
 from vyper.typing import InterfaceImports, StorageLayout
-from vyper.utils import cached_property
+from vyper.utils import cached_property, timeit, timer
 
 
 class CompilerData:
@@ -149,6 +149,7 @@ class CompilerData:
         return generate_bytecode(self.assembly_runtime, is_runtime=True)
 
 
+@timeit
 def generate_ast(source_code: str, source_id: int, contract_name: str) -> vy_ast.Module:
     """
     Generate a Vyper AST from source code.
@@ -170,6 +171,7 @@ def generate_ast(source_code: str, source_id: int, contract_name: str) -> vy_ast
     return vy_ast.parse_to_ast(source_code, source_id, contract_name)
 
 
+@timeit
 def generate_unfolded_ast(
     vyper_module: vy_ast.Module, interface_codes: Optional[InterfaceImports]
 ) -> vy_ast.Module:
@@ -183,6 +185,7 @@ def generate_unfolded_ast(
     return vyper_module
 
 
+@timeit
 def generate_folded_ast(
     vyper_module: vy_ast.Module,
     interface_codes: Optional[InterfaceImports],
@@ -207,13 +210,17 @@ def generate_folded_ast(
 
     vyper_module_folded = copy.deepcopy(vyper_module)
     vy_ast.folding.fold(vyper_module_folded)
-    validate_semantics(vyper_module_folded, interface_codes)
-    vy_ast.expansion.expand_annotated_ast(vyper_module_folded)
-    symbol_tables = set_data_positions(vyper_module_folded, storage_layout_overrides)
+    with timer("validate_semantics"):
+        validate_semantics(vyper_module_folded, interface_codes)
+    with timer("ast expansion"):
+        vy_ast.expansion.expand_annotated_ast(vyper_module_folded)
+    with timer("set data positions"):
+        symbol_tables = set_data_positions(vyper_module_folded, storage_layout_overrides)
 
     return vyper_module_folded, symbol_tables
 
 
+@timeit
 def generate_global_context(
     vyper_module: vy_ast.Module, interface_codes: Optional[InterfaceImports]
 ) -> GlobalContext:
@@ -235,6 +242,7 @@ def generate_global_context(
     return GlobalContext.get_global_context(vyper_module, interface_codes=interface_codes)
 
 
+@timeit
 def generate_ir_nodes(
     global_ctx: GlobalContext, no_optimize: bool
 ) -> Tuple[IRnode, IRnode, FunctionSignatures]:
@@ -264,6 +272,7 @@ def generate_ir_nodes(
     return ir_nodes, ir_runtime, function_sigs
 
 
+@timeit
 def generate_assembly(ir_nodes: IRnode, no_optimize: bool = False) -> list:
     """
     Generate assembly instructions from IR.
@@ -296,6 +305,7 @@ def _find_nested_opcode(assembly, key):
         return any(_find_nested_opcode(x, key) for x in sublists)
 
 
+@timeit
 def generate_bytecode(assembly: list, is_runtime: bool = False) -> bytes:
     """
     Generate bytecode from assembly instructions.

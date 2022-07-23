@@ -6,7 +6,7 @@ from vyper.builtin_functions import DISPATCH_TABLE
 from vyper.exceptions import UnfoldableNode, UnknownType
 from vyper.semantics.types.bases import BaseTypeDefinition, DataLocation
 from vyper.semantics.types.utils import get_type_from_annotation
-from vyper.utils import SizeLimits
+from vyper.utils import SizeLimits, timer
 
 BUILTIN_CONSTANTS = {
     "EMPTY_BYTES32": (
@@ -31,15 +31,20 @@ def fold(vyper_module: vy_ast.Module) -> None:
     vyper_module : Module
         Top-level Vyper AST node.
     """
-    replace_builtin_constants(vyper_module)
+    with timer("builtin constants"):
+        replace_builtin_constants(vyper_module)
 
     changed_nodes = 1
     while changed_nodes:
         changed_nodes = 0
-        changed_nodes += replace_user_defined_constants(vyper_module)
-        changed_nodes += replace_literal_ops(vyper_module)
-        changed_nodes += replace_subscripts(vyper_module)
-        changed_nodes += replace_builtin_functions(vyper_module)
+        with timer("constants"):
+            changed_nodes += replace_user_defined_constants(vyper_module)
+        with timer("literal ops"):
+            changed_nodes += replace_literal_ops(vyper_module)
+        with timer("subscripts"):
+            changed_nodes += replace_subscripts(vyper_module)
+        with timer("builtins"):
+            changed_nodes += replace_builtin_functions(vyper_module)
 
 
 def replace_literal_ops(vyper_module: vy_ast.Module) -> int:
@@ -263,6 +268,7 @@ def replace_constant(
             is_struct = True
 
     changed_nodes = 0
+
 
     for node in vyper_module.get_descendants(vy_ast.Name, {"id": id_}, reverse=True):
         parent = node.get_ancestor()
