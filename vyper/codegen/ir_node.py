@@ -155,6 +155,9 @@ class IRnode:
 
             self.valency = 1
             self._gas = 5
+        elif isinstance(self.value, bytes):
+            self.valency = None
+            self._gas = None
         elif isinstance(self.value, str):
             # Opcodes and pseudo-opcodes (e.g. clamp)
             if self.value.upper() in get_ir_opcodes():
@@ -301,6 +304,11 @@ class IRnode:
                     )
                 self.valency = sum([arg.valency for arg in self.args])
                 self._gas = sum([arg.gas for arg in self.args])
+            elif self.value == "bytestring":
+                _check(len(self.args) == 1, f"`bytestring` takes one arg")
+                _check(isinstance(self.args[0].value, bytes), f"`bytestring` only accepts bytes arg, {self}")
+                self.valency = None
+                self._gas = None
             elif self.value == "deploy":
                 self.valency = 0
                 _check(len(self.args) == 3, f"`deploy` should have three args {self}")
@@ -362,7 +370,7 @@ class IRnode:
 
     @property
     def is_literal(self):
-        return isinstance(self.value, int) or self.value == "multi"
+        return isinstance(self.value, int) or self.value == "multi" or self.value == "bytestring"
 
     @property
     def is_pointer(self):

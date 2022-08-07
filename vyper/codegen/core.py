@@ -20,7 +20,7 @@ from vyper.codegen.types import (
 )
 from vyper.evm.opcodes import version_check
 from vyper.exceptions import CompilerPanic, StructureException, TypeCheckFailure, TypeMismatch
-from vyper.utils import GAS_CALLDATACOPY_WORD, GAS_CODECOPY_WORD, GAS_IDENTITY, GAS_IDENTITYWORD
+from vyper.utils import GAS_CALLDATACOPY_WORD, GAS_CODECOPY_WORD, GAS_IDENTITY, GAS_IDENTITYWORD, bytes_to_int
 
 
 # propagate revert message when calls to external contracts fail
@@ -57,6 +57,17 @@ def make_byte_array_copier(dst, src):
     if src.value == "~empty":
         # set length word to 0.
         return STORE(dst, 0)
+
+    if src.value == "bytestring":
+        seq = ["seq"]
+        seq.append(STORE(dst, get_bytearray_length(src)))
+        bytez = src.args[0].value
+        for i in range(0, len(bytez), 32):
+            word = bytes_to_int((bytez + b"\x00" * 31)[i : i + 32])
+            seq.append(STORE(add_ofst(dst, i + dst.location.word_scale), word))
+
+        return IRnode.from_list(seq, annotation=f"Create {src.typ}: {bytez}")
+
 
     with src.cache_when_complex("src") as (b1, src):
         with get_bytearray_length(src).cache_when_complex("len") as (b2, len_):
@@ -251,8 +262,15 @@ def get_bytearray_length(arg):
     typ = BaseType("uint256")
 
     # TODO add "~empty" case to mirror get_dyn_array_count
+    if arg.value == "~empty":
+        val = 0
+    elif arg.value == "bytestring":
+        val = len(arg.args[0])
+    else:
+        assert arg.is_pointer
+        val = LOAD(arg)
 
-    return IRnode.from_list(LOAD(arg), typ=typ)
+    return IRnode.from_list(val, typ=typ)
 
 
 # get the number of elements at runtime

@@ -130,35 +130,15 @@ class Expr:
 
     # String literals
     def parse_Str(self):
-        bytez, bytez_length = string_to_bytes(self.expr.value)
-        typ = StringType(bytez_length, is_literal=True)
-        return self._make_bytelike(typ, bytez, bytez_length)
+        bytez = string_to_bytes(self.expr.value)
+        typ = StringType(len(bytez))
+        return IRnode.from_list(["bytestring", bytez], typ=typ)
 
     # Byte literals
     def parse_Bytes(self):
         bytez = self.expr.s
-        bytez_length = len(self.expr.s)
-        typ = ByteArrayType(bytez_length, is_literal=True)
-        return self._make_bytelike(typ, bytez, bytez_length)
-
-    def _make_bytelike(self, btype, bytez, bytez_length):
-        placeholder = self.context.new_internal_variable(btype)
-        seq = []
-        seq.append(["mstore", placeholder, bytez_length])
-        for i in range(0, len(bytez), 32):
-            seq.append(
-                [
-                    "mstore",
-                    ["add", placeholder, i + 32],
-                    bytes_to_int((bytez + b"\x00" * 31)[i : i + 32]),
-                ]
-            )
-        return IRnode.from_list(
-            ["seq"] + seq + [placeholder],
-            typ=btype,
-            location=MEMORY,
-            annotation=f"Create {btype}: {bytez}",
-        )
+        typ = ByteArrayType(len(bytez))
+        return IRnode.from_list(["bytestring", bytez], typ=typ)
 
     # True, False, None constants
     def parse_NameConstant(self):

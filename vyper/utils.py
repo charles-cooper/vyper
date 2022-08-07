@@ -124,13 +124,12 @@ def round_towards_zero(d: decimal.Decimal) -> int:
 
 # Converts string to bytes
 def string_to_bytes(str):
-    bytez = b""
+    chars = []
     for c in str:
         if ord(c) >= 256:
             raise InvalidLiteral(f"Cannot insert special character {c} into byte array")
-        bytez += bytes([ord(c)])
-    bytez_length = len(bytez)
-    return bytez, bytez_length
+        chars.append(ord(c))
+    return bytes(chars)
 
 
 # Converts a provided hex string to an integer

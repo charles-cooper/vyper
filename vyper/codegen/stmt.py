@@ -23,7 +23,7 @@ from vyper.codegen.core import (
 )
 from vyper.codegen.expr import Expr
 from vyper.codegen.return_ import make_return_stmt
-from vyper.codegen.types import BaseType, ByteArrayType, DArrayType
+from vyper.codegen.types import BaseType, ByteArrayType, DArrayType, get_type_for_exact_size
 from vyper.codegen.types.convert import new_type_to_old_type
 from vyper.exceptions import CompilerPanic, StructureException, TypeCheckFailure
 
@@ -172,28 +172,16 @@ class Stmt:
         finally:
             self.context.constancy = tmp
 
-        # TODO this is probably useful in codegen.core
-        # compare with eval_seq.
-        def _get_last(ir):
-            if len(ir.args) == 0:
-                return ir.value
-            return _get_last(ir.args[-1])
+        buflen = msg_ir.typ.maxlen
+        buftyp = ByteArrayType(buflen)
+        buf = self.context.new_internal_variable(get_type_for_exact_size(buflen + 64))
 
-        # TODO maybe use ensure_in_memory
-        if msg_ir.location != MEMORY:
-            buf = self.context.new_internal_variable(msg_ir.typ)
-            instantiate_msg = make_byte_array_copier(buf, msg_ir)
-        else:
-            buf = _get_last(msg_ir)
-            if not isinstance(buf, int):
-                raise CompilerPanic(f"invalid bytestring {buf}\n{self}")
-            instantiate_msg = msg_ir
+        instantiate_msg = make_setter(IRnode.from_list(buf + 64, typ=buftyp, location=MEMORY), msg_ir)
 
         # offset of bytes in (bytes,)
         method_id = util.abi_method_id("Error(string)")
 
         # abi encode method_id + bytestring
-        assert buf >= 36, "invalid buffer"
         # we don't mind overwriting other memory because we are
         # getting out of here anyway.
         _runtime_length = ["mload", buf]
@@ -201,9 +189,9 @@ class Stmt:
             "seq",
             instantiate_msg,
             zero_pad(buf),
-            ["mstore", buf - 64, method_id],
-            ["mstore", buf - 32, 0x20],
-            ["revert", buf - 36, ["add", 4 + 32 + 32, ["ceil32", _runtime_length]]],
+            ["mstore", buf, method_id],
+            ["mstore", buf + 32, 0x20],
+            ["revert", buf + 28, ["add", 4 + 32 + 32, ["ceil32", _runtime_length]]],
         ]
 
         if test_expr is not None:
