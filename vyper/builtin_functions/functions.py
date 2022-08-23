@@ -1480,12 +1480,11 @@ class Shift(BuiltinFunction):
         argty = args[0].typ
         GSHR = sar if argty._int_info.is_signed else shr
 
-        with args[0].cache_when_complex("to_shift") as (b1, arg), args[1].cache_when_complex(
-            "bits"
-        ) as (b2, bits):
+        arg = args[0]
+        with args[1].cache_when_complex("bits") as (b1, bits):
             neg_bits = ["sub", 0, bits]
             ret = ["if", ["slt", bits, 0], GSHR(neg_bits, arg), shl(bits, arg)]
-            return b1.resolve(b2.resolve(IRnode.from_list(ret, typ=argty)))
+            return b1.resolve(IRnode.from_list(ret, typ=argty))
 
 
 class _AddMulMod(BuiltinFunction):
