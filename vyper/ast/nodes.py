@@ -713,6 +713,11 @@ class StructDef(VyperNode):
     __slots__ = ("name", "body")
 
 
+class Critical(VyperNode):
+    __slots__ = ("body",)
+    _only_empty_fields = ("items", "type_comment")
+
+
 class Constant(VyperNode):
     # inherited class for all simple constant node types
     __slots__ = ("value",)

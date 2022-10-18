@@ -134,6 +134,9 @@ def _runtime_ir(runtime_functions, all_sigs, global_ctx):
 
     selector_section = ["seq"]
 
+    if global_ctx.has_any_lock:
+        selector_section.append(["assert", ["ne", 2, ["sload", 0]]])
+
     for func_ast in payables:
         func_ir = generate_ir_for_function(func_ast, all_sigs, global_ctx, False)
         selector_section.append(func_ir)

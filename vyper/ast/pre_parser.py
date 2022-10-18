@@ -123,6 +123,9 @@ def pre_parse(code: str) -> Tuple[ModificationOffsets, str]:
                 elif string in VYPER_EXPRESSION_TYPES:
                     toks = [TokenInfo(NAME, "yield", start, end, line)]
                     modification_offsets[start] = string.capitalize()
+                elif string == "critical":
+                    toks = [TokenInfo(NAME, "with", start, end, line)]
+                    modification_offsets[start] = string.capitalize()
 
             if (typ, string) == (OP, ";"):
                 raise SyntaxException("Semi-colon statements not allowed", code, start[0], start[1])
