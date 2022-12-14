@@ -38,6 +38,29 @@ def PUSH_N(x, n):
     return [f"PUSH{len(o)}"] + o
 
 
+def immediates_of(op):
+    # number of bytes of the operand of an instruction.
+    # defaults to 0
+
+    if op == "RJUMP":
+        return 2
+    if op == "RJUMPI":
+        return 2
+    if op == "RJUMPV":
+        raise Exception("Unhandled: RJUMPV")
+    if op == "CALLF":
+        return 2
+    if op == "JUMPF":
+        return 2
+
+    return 0
+
+
+# convert a label (as integer) to immediate bytes of instruction
+def bytes_of_label(pc, n):
+    return pc.to_bytes(n, "big")
+
+
 _next_symbol = 0
 
 
@@ -206,7 +229,7 @@ def compile_to_assembly(code, no_optimize=False):
 
     # don't overwrite ir since the original might need to be output, e.g. `-f ir,asm`
     code = copy.deepcopy(code)
-    _rewrite_return_sequences(code)
+    #_rewrite_return_sequences(code)
 
     res = _compile_to_assembly(code)
 
@@ -670,7 +693,8 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         o = []
         for i, c in enumerate(reversed(code.args[1:])):
             o.extend(_compile_to_assembly(c, withargs, existing_labels, break_dest, height + i))
-        o.extend(["_sym_" + str(code.args[0]), "JUMP"])
+        #o.extend(["_sym_" + str(code.args[0]), "JUMP"])
+        o.extend(["CALLF", "_sym_" + str(code.args[0])])
         return o
     # push a literal symbol
     elif isinstance(code.value, str) and is_symbol(code.value):
@@ -724,7 +748,10 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         return []
 
     elif code.value == "exit_to":
-        raise CodegenPanic("exit_to not implemented yet!")
+        if code.args[0].value == "return_pc":
+            return ["RETF"]
+        else:
+            return ["JUMPF", str(code.args[0])]
 
     # inject debug opcode.
     elif code.value == "debugger":
@@ -773,6 +800,7 @@ def _prune_unreachable_code(assembly):
     changed = False
     i = 0
     while i < len(assembly) - 1:
+        # TODO: handle JUMPF, CALLF, RETF?
         if assembly[i] in ("JUMP", "RETURN", "REVERT", "STOP") and not (
             is_symbol(assembly[i + 1]) or assembly[i + 1] == "JUMPDEST"
         ):
@@ -1039,6 +1067,7 @@ def assembly_to_evm(
             continue  # skip debug
 
         # update pc_jump_map
+        # TODO: we can do better with jump vs subroutine distinction
         if item == "JUMP":
             last = assembly[i - 1]
             if is_symbol(last) and last.startswith("_sym_internal"):
@@ -1056,12 +1085,19 @@ def assembly_to_evm(
 
         # update pc
         if is_symbol(item):
+            # _sym_foo JUMPDEST
             if assembly[i + 1] == "JUMPDEST" or assembly[i + 1] == "BLANK":
                 # Don't increment pc as the symbol itself doesn't go into code
                 if item in symbol_map:
                     raise CompilerPanic(f"duplicate jumpdest {item}")
 
                 symbol_map[item] = pc
+
+            # JUMPF, CALLF, RJUMP, RJUMPI
+            # JUMPF _sym_foo
+            elif assembly[i - 1] in ("JUMPF", "CALLF", "RJUMP", "RJUMPI"):
+                pc += CODE_OFST_SIZE
+            # TODO: handle RJUMPV
             else:
                 pc += CODE_OFST_SIZE + 1  # PUSH2 highbits lowbits
         elif is_mem_sym(item):
@@ -1140,6 +1176,12 @@ def assembly_to_evm(
             o += bytes([item])
         elif isinstance(item, str) and item.upper() in get_opcodes():
             o += bytes([get_opcodes()[item.upper()][0]])
+            n = immediates_of(item)
+            # TODO handle RJUMPV correctly
+            if n != 0:
+                o += bytes_of_label(symbol_map[assembly[i + 1]], n)
+                to_skip = 1
+
         elif item[:4] == "PUSH":
             o += bytes([PUSH_OFFSET + int(item[4:])])
         elif item[:3] == "DUP":
