@@ -689,6 +689,7 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         )
 
     # jump to a symbol, and push variable # of arguments onto stack
+    # NOTE: this should always be a subroutine call.
     elif code.value == "goto":
         o = []
         for i, c in enumerate(reversed(code.args[1:])):
@@ -747,10 +748,13 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
         return []
 
+    # exit from a subroutine, or jump to cleanup routine.
     elif code.value == "exit_to":
+        # subroutine exit
         if code.args[0].value == "return_pc":
             return ["RETF"]
         else:
+            # this will always be a cleanup routine
             return ["JUMPF", str(code.args[0])]
 
     # inject debug opcode.
