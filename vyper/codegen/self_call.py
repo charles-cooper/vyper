@@ -4,6 +4,8 @@ from vyper.codegen.ir_node import IRnode, push_label_to_stack
 from vyper.codegen.types import TupleType
 from vyper.exceptions import StateAccessViolation, StructureException
 
+from vyper.evm.opcodes import version_check
+
 _label_counter = 0
 
 
@@ -84,16 +86,24 @@ def ir_for_self_call(stmt_expr, context):
     else:
         copy_args = make_setter(args_dst, args_as_tuple)
 
-    goto_op = ["goto", sig.internal_function_label]
+    if version_check(begin="shanghai"):
+        # TODO do we need this split? or handle in assembler
+        goto_op = ["callf", sig.internal_function_label]
+    else:
+        goto_op = ["goto", sig.internal_function_label]
+
     # pass return buffer to subroutine
     if return_buffer is not None:
         goto_op += [return_buffer]
+
     # pass return label to subroutine
-    goto_op += [push_label_to_stack(return_label)]
+    if version_check(end="paris"):
+        goto_op += [push_label_to_stack(return_label)]
 
     call_sequence = ["seq"]
     call_sequence.append(eval_once_check(_freshname(stmt_expr.node_source_code)))
     call_sequence.extend([copy_args, goto_op, ["label", return_label, ["var_list"], "pass"]])
+
     if return_buffer is not None:
         # push return buffer location to stack
         call_sequence += [return_buffer]
