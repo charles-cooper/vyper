@@ -97,7 +97,7 @@ def ir_for_self_call(stmt_expr, context):
         goto_op += [return_buffer]
 
     # pass return label to subroutine
-    if version_check(end="paris"):
+    if not version_check(begin="shanghai"):
         goto_op += [push_label_to_stack(return_label)]
 
     call_sequence = ["seq"]
