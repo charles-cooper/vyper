@@ -86,19 +86,11 @@ def ir_for_self_call(stmt_expr, context):
     else:
         copy_args = make_setter(args_dst, args_as_tuple)
 
-    if version_check(begin="shanghai"):
-        # TODO do we need this split? or handle in assembler
-        goto_op = ["callf", sig.internal_function_label]
-    else:
-        goto_op = ["goto", sig.internal_function_label]
+    goto_op = ["goto", sig.internal_function_label]
 
     # pass return buffer to subroutine
     if return_buffer is not None:
         goto_op += [return_buffer]
-
-    # pass return label to subroutine
-    if not version_check(begin="shanghai"):
-        goto_op += [push_label_to_stack(return_label)]
 
     call_sequence = ["seq"]
     call_sequence.append(eval_once_check(_freshname(stmt_expr.node_source_code)))

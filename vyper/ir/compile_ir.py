@@ -695,11 +695,22 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
     # NOTE: this should always be a subroutine call.
     elif code.value == "goto":
         o = []
-        for i, c in enumerate(reversed(code.args[1:])):
+
+        argz = code.args[1:]
+        if version_check(begin="shanghai") and is_symbol(code.args[1].value):
+            # CALLF handles the return pc so in the new calling convention
+            # we don't need to push it onto the stack
+            argz = code.args[2:]
+
+        for i, c in enumerate(reversed(argz)):
             o.extend(_compile_to_assembly(c, withargs, existing_labels, break_dest, height + i))
-        #o.extend(["_sym_" + str(code.args[0]), "JUMP"])
-        o.extend(["CALLF", "_sym_" + str(code.args[0])])
+
+        if version_check(begin="shanghai"):
+            o.extend(["CALLF", "_sym_" + str(code.args[0])])
+        else:
+            o.extend(["_sym_" + str(code.args[0]), "JUMP"])
         return o
+
     # push a literal symbol
     elif isinstance(code.value, str) and is_symbol(code.value):
         return [code.value]
