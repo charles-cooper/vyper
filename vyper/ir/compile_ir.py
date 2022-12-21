@@ -760,6 +760,25 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
             # this will always be a cleanup routine
             return ["JUMPF", str(code.args[0])]
 
+
+        # A[1] B[2] C[4] D[1]
+        # ..
+        # RJUMP A <-- stack height is X
+        # ..
+        # RJUMP A <-- stack height must be X as well per EIP 5450
+
+        # if cond
+        #   YYY
+        # ZZZ <- stack height is X whether cond was true or not
+
+
+        # if ...:
+        #   x = 1
+        #   ...
+        #   return x  # => exit_to
+
+        # return 10  # => exit_to
+
     # inject debug opcode.
     elif code.value == "debugger":
         return mkdebug(pc_debugger=False, source_pos=code.source_pos)
