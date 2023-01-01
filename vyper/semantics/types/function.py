@@ -2,6 +2,7 @@ import re
 import warnings
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Set, Tuple
+from functools import cached_property
 
 from vyper import ast as vy_ast
 from vyper.ast.validation import validate_call_args
@@ -65,13 +66,13 @@ class ContractFunctionT(VyperType):
     def __init__(
         self,
         name: str,
-        arguments: OrderedDict,
-        # TODO rename to something like positional_args, keyword_args
+        arguments: OrderedDict[str, VyperType],
         min_arg_count: int,
         max_arg_count: int,
         return_type: Optional[VyperType],
         function_visibility: FunctionVisibility,
         state_mutability: StateMutability,
+        default_values: Optional[List[vy_ast.VyperNode]] = None,
         nonreentrant: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -81,12 +82,14 @@ class ContractFunctionT(VyperType):
         self.min_arg_count = min_arg_count
         self.max_arg_count = max_arg_count
         self.return_type = return_type
-        self.kwarg_keys = []
-        if min_arg_count < max_arg_count:
-            self.kwarg_keys = list(self.arguments)[min_arg_count:]
         self.visibility = function_visibility
         self.mutability = state_mutability
         self.nonreentrant = nonreentrant
+
+        self.kwarg_keys = list(self.arguments.keys())[min_arg_count:]
+        default_values = default_values or []
+        assert len(self.kwarg_keys) == len(default_values)
+        self.defaults = {k: v for (k, v) in zip(self.kwarg_keys, default_values)}
 
         # a list of internal functions this function calls
         self.called_functions: Set["ContractFunctionT"] = set()
@@ -98,6 +101,10 @@ class ContractFunctionT(VyperType):
             "skip_contract_check": KwargSettings(BoolT(), False, require_literal=True),
             "default_return_value": KwargSettings(return_type, None),
         }
+
+    @cached_property
+    def base_args(self):
+        raise Exception("todo")
 
     def __repr__(self):
         arg_types = ",".join(repr(a) for a in self.arguments.values())
@@ -146,7 +153,7 @@ class ContractFunctionT(VyperType):
 
     @classmethod
     def from_FunctionDef(
-        cls, node: vy_ast.FunctionDef, is_interface: Optional[bool] = False
+        cls, node: vy_ast.FunctionDef, is_interface: bool = False
     ) -> "ContractFunctionT":
         """
         Generate a `ContractFunctionT` object from a `FunctionDef` node.
@@ -162,7 +169,9 @@ class ContractFunctionT(VyperType):
         -------
         ContractFunctionT
         """
-        kwargs: Dict[str, Any] = {}
+        visibility = None
+        mutability = None
+        nonreentrant = None
         if is_interface:
             # FunctionDef with stateMutability in body (Interface defintions)
             if (
@@ -172,8 +181,8 @@ class ContractFunctionT(VyperType):
                 and StateMutability.is_valid_value(node.body[0].value.id)
             ):
                 # Interfaces are always public
-                kwargs["function_visibility"] = FunctionVisibility.EXTERNAL
-                kwargs["state_mutability"] = StateMutability(node.body[0].value.id)
+                visibility = FunctionVisibility.EXTERNAL
+                mutability = StateMutability(node.body[0].value.id)
             elif len(node.body) == 1 and node.body[0].get("value.id") in ("constant", "modifying"):
                 if node.body[0].value.id == "constant":
                     expected = "view or pure"
@@ -193,10 +202,9 @@ class ContractFunctionT(VyperType):
             for decorator in node.decorator_list:
 
                 if isinstance(decorator, vy_ast.Call):
-                    if "nonreentrant" in kwargs:
+                    if nonreentrant is not None:
                         raise StructureException(
-                            "nonreentrant decorator is already set with key: "
-                            f"{kwargs['nonreentrant']}",
+                            "nonreentrant decorator is already set with key: " f"{nonreentrant}",
                             node,
                         )
 
@@ -211,23 +219,22 @@ class ContractFunctionT(VyperType):
                         msg = "Nonreentrant decorator disallowed on `__init__`"
                         raise FunctionDeclarationException(msg, decorator)
 
-                    kwargs["nonreentrant"] = decorator.args[0].value
+                    nonreentrant = decorator.args[0].value
 
                 elif isinstance(decorator, vy_ast.Name):
                     if FunctionVisibility.is_valid_value(decorator.id):
-                        if "function_visibility" in kwargs:
+                        if visibility is not None:
                             raise FunctionDeclarationException(
-                                f"Visibility is already set to: {kwargs['function_visibility']}",
-                                node,
+                                f"Visibility is already set to: {visibility}", node
                             )
-                        kwargs["function_visibility"] = FunctionVisibility(decorator.id)
+                        visibility = FunctionVisibility(decorator.id)
 
                     elif StateMutability.is_valid_value(decorator.id):
-                        if "state_mutability" in kwargs:
+                        if mutability is not None:
                             raise FunctionDeclarationException(
-                                f"Mutability is already set to: {kwargs['state_mutability']}", node
+                                f"Mutability is already set to: {mutability}", node
                             )
-                        kwargs["state_mutability"] = StateMutability(decorator.id)
+                        mutability = StateMutability(decorator.id)
 
                     else:
                         if decorator.id == "constant":
@@ -243,13 +250,13 @@ class ContractFunctionT(VyperType):
                 else:
                     raise StructureException("Bad decorator syntax", decorator)
 
-        if "function_visibility" not in kwargs:
+        if visibility is None:
             raise FunctionDeclarationException(
                 f"Visibility must be set to one of: {', '.join(FunctionVisibility.values())}", node
             )
 
         if node.name == "__default__":
-            if kwargs["function_visibility"] != FunctionVisibility.EXTERNAL:
+            if visibility != FunctionVisibility.EXTERNAL:
                 raise FunctionDeclarationException(
                     "Default function must be marked as `@external`", node
                 )
@@ -258,17 +265,17 @@ class ContractFunctionT(VyperType):
                     "Default function may not receive any arguments", node.args.args[0]
                 )
 
-        if "state_mutability" not in kwargs:
+        if mutability is None:
             # Assume nonpayable if not set at all (cannot accept Ether, but can modify state)
-            kwargs["state_mutability"] = StateMutability.NONPAYABLE
+            mutability = StateMutability.NONPAYABLE
 
-        if kwargs["state_mutability"] == StateMutability.PURE and "nonreentrant" in kwargs:
+        if mutability == StateMutability.PURE and nonreentrant is not None:
             raise StructureException("Cannot use reentrancy guard on pure functions", node)
 
         if node.name == "__init__":
             if (
-                kwargs["state_mutability"] in (StateMutability.PURE, StateMutability.VIEW)
-                or kwargs["function_visibility"] == FunctionVisibility.INTERNAL
+                mutability in (StateMutability.PURE, StateMutability.VIEW)
+                or visibility == FunctionVisibility.INTERNAL
             ):
                 raise FunctionDeclarationException(
                     "Constructor cannot be marked as `@pure`, `@view` or `@internal`", node
@@ -320,14 +327,22 @@ class ContractFunctionT(VyperType):
         elif isinstance(node.returns, (vy_ast.Name, vy_ast.Call, vy_ast.Subscript)):
             return_type = type_from_annotation(node.returns)
         elif isinstance(node.returns, vy_ast.Tuple):
-            tuple_types: Tuple = ()
-            for n in node.returns.elements:
-                tuple_types += (type_from_annotation(n),)
-            return_type = TupleT(tuple_types)
+            ts = [type_from_annotation(n) for n in node.returns.elements]
+            return_type = TupleT(tuple(ts))
         else:
             raise InvalidType("Function return value must be a type name or tuple", node.returns)
 
-        return cls(node.name, arguments, min_arg_count, max_arg_count, return_type, **kwargs)
+        return cls(
+            node.name,
+            arguments,
+            min_arg_count,
+            max_arg_count,
+            return_type,
+            function_visibility=visibility,
+            state_mutability=mutability,
+            nonreentrant=nonreentrant,
+            default_values=node.args.defaults,
+        )
 
     def set_reentrancy_key_position(self, position: StorageSlot) -> None:
         if hasattr(self, "reentrancy_key_position"):
@@ -412,6 +427,14 @@ class ContractFunctionT(VyperType):
         return self.visibility == FunctionVisibility.INTERNAL
 
     @property
+    def is_init_func(self) -> bool:
+        return self.name == "__init__"
+
+    @property
+    def is_default_func(self) -> bool:
+        return self.name == "__default__"
+
+    @property
     def method_ids(self) -> Dict[str, int]:
         """
         Dict of `{signature: four byte selector}` for this function.
@@ -444,15 +467,15 @@ class ContractFunctionT(VyperType):
         """
         return sum(arg_t.size_in_bytes() for arg_t in self.arguments.values())
 
-    @property
+    @cached_property
     def is_constructor(self) -> bool:
         return self.name == "__init__"
 
-    @property
+    @cached_property
     def is_fallback(self) -> bool:
         return self.name == "__default__"
 
-    @property
+    @cached_property
     def has_default_args(self) -> bool:
         return self.min_arg_count < self.max_arg_count
 

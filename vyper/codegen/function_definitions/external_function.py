@@ -15,19 +15,19 @@ from vyper.semantics.types import TupleT
 
 # register function args with the local calling context.
 # also allocate the ones that live in memory (i.e. kwargs)
-def _register_function_args(context: Context, sig: FunctionSignature) -> List[IRnode]:
+def _register_function_args(context: Context) -> List[IRnode]:
     ret = []
 
     # the type of the calldata
     base_args_t = TupleT(tuple(arg.typ for arg in sig.base_args))
 
     # tuple with the abi_encoded args
-    if sig.is_init_func:
+    if context.func_t.is_init_func:
         base_args_ofst = IRnode(0, location=DATA, typ=base_args_t, encoding=Encoding.ABI)
     else:
         base_args_ofst = IRnode(4, location=CALLDATA, typ=base_args_t, encoding=Encoding.ABI)
 
-    for i, arg in enumerate(sig.base_args):
+    for i, (argname, argtype) in enumerate(sig.base_args.items()):
 
         arg_ir = get_element_ptr(base_args_ofst, i)
 
@@ -60,7 +60,7 @@ def _annotated_method_id(abi_sig):
     return IRnode(method_id, annotation=annotation)
 
 
-def _generate_kwarg_handlers(context: Context, sig: FunctionSignature) -> List[Any]:
+def _generate_kwarg_handlers(context: Context) -> List[Any]:
     # generate kwarg handlers.
     # since they might come in thru calldata or be default,
     # allocate them in memory and then fill it in based on calldata or default,
@@ -72,11 +72,11 @@ def _generate_kwarg_handlers(context: Context, sig: FunctionSignature) -> List[A
     #    goto external_function_common_ir
 
     def handler_for(calldata_kwargs, default_kwargs):
-        calldata_args = sig.base_args + calldata_kwargs
+        calldata_args = func_t.base_args + calldata_kwargs
         # create a fake type so that get_element_ptr works
         calldata_args_t = TupleT(list(arg.typ for arg in calldata_args))
 
-        abi_sig = sig.abi_signature_for_kwargs(calldata_kwargs)
+        abi_sig = func_t.abi_signature_for_kwargs(calldata_kwargs)
         method_id = _annotated_method_id(abi_sig)
 
         calldata_kwargs_ofst = IRnode(
@@ -95,7 +95,7 @@ def _generate_kwarg_handlers(context: Context, sig: FunctionSignature) -> List[A
         # TupleT(list(arg.typ for arg in calldata_kwargs + default_kwargs))
         # (must ensure memory area is contiguous)
 
-        n_base_args = len(sig.base_args)
+        n_base_args = len(func_t.base_args)
 
         for i, arg_meta in enumerate(calldata_kwargs):
             k = n_base_args + i
@@ -148,7 +148,7 @@ def _generate_kwarg_handlers(context: Context, sig: FunctionSignature) -> List[A
 # TODO it would be nice if this returned a data structure which were
 # amenable to generating a jump table instead of the linear search for
 # method_id we have now.
-def generate_ir_for_external_function(code, sig, context, skip_nonpayable_check):
+def generate_ir_for_external_function(code, context, skip_nonpayable_check):
     # TODO type hints:
     # def generate_ir_for_external_function(
     #    code: vy_ast.FunctionDef, sig: FunctionSignature, context: Context, check_nonpayable: bool,

@@ -4,6 +4,7 @@ from .bytestrings import BytesT, StringT, _BytestringT
 from .primitives import AddressT, BoolT, BytesM_T, DecimalT, IntegerT
 from .subscriptable import DArrayT, HashMapT, SArrayT, TupleT
 from .user import EnumT, EventT, InterfaceT, StructT
+from .function import ContractFunctionT
 
 
 def get_primitive_types():

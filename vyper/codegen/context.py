@@ -2,11 +2,13 @@ import contextlib
 import enum
 from dataclasses import dataclass
 from typing import Any, Optional
+from functools import cached_property
 
 from vyper.address_space import MEMORY, AddrSpace
 from vyper.codegen.ir_node import Encoding
 from vyper.exceptions import CompilerPanic, StateAccessViolation
 from vyper.semantics.types import VyperType
+from vyper.semantics.types.function import StateMutability
 
 
 class Constancy(enum.Enum):
@@ -43,14 +45,7 @@ class VariableRecord:
 # Contains arguments, variables, etc
 class Context:
     def __init__(
-        self,
-        global_ctx,
-        memory_allocator,
-        vars_=None,
-        sigs=None,
-        forvars=None,
-        constancy=Constancy.Mutable,
-        sig=None,
+        self, global_ctx, memory_allocator, vars_=None, functions=None, forvars=None, func_t=None
     ):
         # In-memory variables, in the form (name, memory location, type)
         self.vars = vars_ or {}
@@ -58,16 +53,12 @@ class Context:
         # Global variables, in the form (name, storage location, type)
         self.globals = global_ctx.variables
 
-        # ABI objects, in the form {classname: ABI JSON}
-        self.sigs = sigs or {"self": {}}
+        # namespace of function types
+        self.functions = functions or {"self": {}}
 
         # Variables defined in for loops, e.g. for i in range(6): ...
         self.forvars = forvars or {}
 
-        # Is the function constant?
-        self.constancy = constancy
-
-        # Whether body is currently in an assert statement
         self.in_assertion = False
 
         # Whether we are currently parsing a range expression
@@ -76,8 +67,9 @@ class Context:
         # store global context
         self.global_ctx = global_ctx
 
-        # full function signature
-        self.sig = sig
+        # the function type
+        self.func_t = func_t
+
         # Active scopes
         self._scopes = set()
 
@@ -89,6 +81,12 @@ class Context:
         self._internal_var_iter = 0
         self._scope_id_iter = 0
 
+    @cached_property
+    def constancy(self):
+        return self.func_t.mutability in (StateMutability.PURE, StateMutability.VIEW)
+
+        # Whether body is currently in an assert statement
+
     def is_constant(self):
         return self.constancy is Constancy.Constant or self.in_assertion or self.in_range_expr
 
@@ -97,17 +95,17 @@ class Context:
             raise StateAccessViolation(f"Cannot {err} from {self.pp_constancy()}", expr)
 
     # convenience propreties
-    @property
+    @cached_property
     def is_payable(self):
-        return self.sig.mutability == "payable"
+        return self.func_t.mutability == StateMutability.PAYABLE
 
-    @property
+    @cached_property
     def is_internal(self):
-        return self.sig.internal
+        return self.func_t.internal
 
-    @property
+    @cached_property
     def return_type(self):
-        return self.sig.return_type
+        return self.func_t.return_type
 
     #
     # Context Managers
@@ -253,24 +251,21 @@ class Context:
         the kwargs which need to be filled in by the compiler
         """
 
-        sig = self.sigs["self"].get(method_name, None)
+        sig = self.func_t["self"][method_name]
 
         def _check(cond, s="Unreachable"):
             if not cond:
                 raise CompilerPanic(s)
 
         # these should have been caught during type checking; sanity check
-        _check(sig is not None)
-        _check(sig.internal)
-        _check(len(sig.base_args) <= len(args_ir) <= len(sig.args))
-        # more sanity check, that the types match
-        # _check(all(l.typ == r.typ for (l, r) in zip(args_ir, sig.args))
+        _check(func_t.is_internal)
+        _check(func_t.min_arg_count <= len(args_ir) <= func_t.max_arg_count)
 
-        num_provided_kwargs = len(args_ir) - len(sig.base_args)
-        num_kwargs = len(sig.default_args)
+        num_provided_kwargs = len(args_ir) - func_t.min_arg_count
+        num_kwargs = len(func_t.kwarg_keys)
         kwargs_needed = num_kwargs - num_provided_kwargs
 
-        kw_vals = list(sig.default_values.values())[:kwargs_needed]
+        kw_vals = list(func_t.defaults.values())[:kwargs_needed]
 
         return sig, kw_vals
 

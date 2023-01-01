@@ -9,7 +9,7 @@ from vyper.codegen.function_definitions import generate_ir_for_function
 from vyper.codegen.global_context import GlobalContext
 from vyper.codegen.ir_node import IRnode
 from vyper.exceptions import CompilerPanic
-from vyper.semantics.types.function import StateMutability
+from vyper.semantics.types.function import StateMutability, ContractFunctionT
 
 
 def _topsort_helper(functions, lookup):
@@ -35,11 +35,11 @@ def _topsort(functions):
 
 
 def _is_init_func(func_ast):
-    return func_ast._metadata["signature"].is_init_func
+    return func_ast._metadata["type"].is_init_func
 
 
 def _is_default_func(func_ast):
-    return func_ast._metadata["signature"].is_default_func
+    return func_ast._metadata["type"].is_default_func
 
 
 def _is_internal(func_ast):
@@ -140,24 +140,12 @@ def generate_ir_for_module(global_ctx: GlobalContext) -> Tuple[IRnode, IRnode, F
     # order functions so that each function comes after all of its callees
     function_defs = _topsort(global_ctx.functions)
 
-    # FunctionSignatures for all interfaces defined in this module
-    all_sigs: Dict[str, FunctionSignatures] = {}
-
     init_function: Optional[vy_ast.FunctionDef] = None
-    local_sigs: FunctionSignatures = {}  # internal/local functions
 
-    # generate all signatures
-    # TODO really this should live in GlobalContext
-    for f in function_defs:
-        sig = FunctionSignature.from_definition(f, global_ctx)
-        # add it to the global namespace.
-        local_sigs[sig.name] = sig
-        # a little hacky, eventually FunctionSignature should be
-        # merged with ContractFunction and we can remove this.
-        f._metadata["signature"] = sig
+    # generate a lookup table of function signatures
+    local_sigs = {f.name: f._metadata["type"] for f in function_defs}
 
-    assert "self" not in all_sigs
-    all_sigs["self"] = local_sigs
+    all_sigs: Dict[str, Dict[str, ContractFunctionT]] = {"self": local_sigs}
 
     runtime_functions = [f for f in function_defs if not _is_init_func(f)]
     init_function = next((f for f in function_defs if _is_init_func(f)), None)
@@ -173,7 +161,7 @@ def generate_ir_for_module(global_ctx: GlobalContext) -> Tuple[IRnode, IRnode, F
         # pass the amount of memory allocated for the init function
         # so that deployment does not clobber while preparing immutables
         # note: (deploy mem_ofst, code, extra_padding)
-        init_mem_used = init_function._metadata["signature"].frame_info.mem_used
+        init_mem_used = init_function._metadata["type"].frame_info.mem_used
         deploy_code.append(["deploy", init_mem_used, runtime, immutables_len])
 
         # internal functions come after everything else

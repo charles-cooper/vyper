@@ -1,10 +1,10 @@
 from typing import Dict
 
-from vyper.ast.signatures import FunctionSignature
+from vyper.semantics.types import ContractFunctionT
 
 
-def build_gas_estimates(function_sigs: Dict[str, FunctionSignature]) -> dict:
-    # note: `.gas_estimate` is added to FunctionSignature
+def build_gas_estimates(function_sigs: Dict[str, ContractFunctionT]) -> dict:
+    # note: `.gas_estimate` is added to ContractFunctionT
     # in vyper/codegen/function_definitions/common.py
     return {k: v.gas_estimate for (k, v) in function_sigs.items()}
 
