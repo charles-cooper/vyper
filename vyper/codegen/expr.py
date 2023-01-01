@@ -174,10 +174,8 @@ class Expr:
 
         # TODO: use self.expr._expr_info
         elif self.expr.id in self.context.globals:
-            var = self.context.globals[self.expr.id]
-            varinfo = var._varinfo
-            if not varinfo.is_immutable:
-                return  # fail
+            varinfo = self.context.globals[self.expr.id]
+            assert varinfo.is_immutable, "not an immutable!"
 
             ofst = varinfo.position.offset
 
@@ -189,7 +187,7 @@ class Expr:
                 location = DATA
 
             return IRnode.from_list(
-                ofst, typ=var.typ, location=location, annotation=self.expr.id, mutable=mutable
+                ofst, typ=varinfo.typ, location=location, annotation=self.expr.id, mutable=mutable
             )
 
     # x.y or x[5]
@@ -249,11 +247,10 @@ class Expr:
                 return IRnode.from_list(["~extcode", addr], typ=BytesT(0))
         # self.x: global attribute
         elif isinstance(self.expr.value, vy_ast.Name) and self.expr.value.id == "self":
-            var = self.context.globals[self.expr.attr]
-            varinfo = var._varinfo
+            varinfo = self.context.globals[self.expr.attr]
             return IRnode.from_list(
                 varinfo.position.position,
-                typ=var.typ,
+                typ=varinfo.typ,
                 location=STORAGE,
                 annotation="self." + self.expr.attr,
             )
