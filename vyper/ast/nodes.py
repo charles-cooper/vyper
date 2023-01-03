@@ -344,10 +344,16 @@ class VyperNode:
                 return False
         return True
 
-    def __repr__(self):
+    def __str__(self):
         cls = type(self)
         class_repr = f"{cls.__module__}.{cls.__qualname__}"
         return f"{class_repr}:\n{self._annotated_source}"
+
+    def __repr__(self):
+        cls = type(self)
+        class_repr = f"{cls.__module__}.{cls.__qualname__}"
+        s = {attr: getattr(self, attr) for attr in self.__slots__}
+        return f"{class_repr}: {s}"
 
     @property
     def _annotated_source(self):
@@ -683,7 +689,7 @@ class DocStr(VyperNode):
 
 
 class arguments(VyperNode):
-    __slots__ = ("args", "defaults", "default")
+    __slots__ = ("args", "defaults")
     _only_empty_fields = ("vararg", "kwonlyargs", "kwarg", "kw_defaults")
 
 
@@ -739,7 +745,6 @@ class Constant(ExprNode):
 
 class Num(Constant):
     # inherited class for all numeric constant node types
-    __slots__ = ()
     _translated_fields = {"n": "value"}
 
     @property
@@ -763,8 +768,7 @@ class Int(Num):
     value : int
         Value of the node, represented as an integer.
     """
-
-    __slots__ = ()
+    pass
 
 
 class Decimal(Num):
@@ -776,8 +780,6 @@ class Decimal(Num):
     value : decimal.Decimal
         Value of the node, represented as a Decimal object.
     """
-
-    __slots__ = ()
 
     def __init__(self, parent: Optional["VyperNode"] = None, **kwargs: dict):
         super().__init__(parent, **kwargs)
