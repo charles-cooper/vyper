@@ -83,10 +83,6 @@ class EnumT(_UserType):
         # fallback to parent class error message
         super().validate_comparator(node)
 
-    # @property
-    # def signature(self):
-    #    return f"{self.name}({','.join(v.canonical_abi_type for v in self.arguments)})"
-
     @classmethod
     def from_EnumDef(cls, base_node: vy_ast.EnumDef) -> "EnumT":
         """

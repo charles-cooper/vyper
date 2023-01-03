@@ -45,8 +45,8 @@ class StatementAnnotationVisitor(_AnnotationVisitorBase):
         self.expr_visitor = ExpressionAnnotationVisitor(self.func)
 
         assert len(self.func.kwarg_keys) == len(fn_node.args.defaults)
-        for kw, val in zip(self.func.kwarg_keys, fn_node.args.defaults):
-            self.expr_visitor.visit(val, self.func.arguments[kw])
+        for kwarg in self.func.keyword_args:
+            self.expr_visitor.visit(kwarg.default_value, kwarg.typ)
 
     def visit(self, node):
         super().visit(node)
@@ -141,8 +141,8 @@ class ExpressionAnnotationVisitor(_AnnotationVisitorBase):
             # function calls
             if call_type.is_internal:
                 self.func.called_functions.add(call_type)
-            for arg, typ in zip(node.args, list(call_type.arguments.values())):
-                self.visit(arg, typ)
+            for arg, expected in zip(node.args, call_type.arguments):
+                self.visit(arg, expected.typ)
             for kwarg in node.keywords:
                 # We should only see special kwargs
                 self.visit(kwarg.value, call_type.call_site_kwargs[kwarg.arg].typ)

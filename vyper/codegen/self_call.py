@@ -1,6 +1,7 @@
 from vyper.address_space import MEMORY
 from vyper.codegen.core import _freshname, eval_once_check, make_setter
 from vyper.codegen.ir_node import IRnode, push_label_to_stack
+from vyper.function_definitions.utils import FuncIRInfo
 from vyper.exceptions import StateAccessViolation, StructureException
 from vyper.semantics.types.subscriptable import TupleT
 
@@ -24,6 +25,7 @@ def ir_for_self_call(stmt_expr, context):
     # - push jumpdest (callback ptr) and return buffer location
     # - jump to label
     # - (private function will fill return buffer and jump back)
+    info = FuncIRInfo(stmt_expr.func._metadata["type"])
 
     method_name = stmt_expr.func.attr
 

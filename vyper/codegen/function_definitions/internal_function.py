@@ -1,6 +1,6 @@
 from vyper import ast as vy_ast
 from vyper.codegen.context import Context
-from vyper.codegen.function_definitions.utils import get_nonreentrant_lock
+from vyper.codegen.function_definitions.utils import get_nonreentrant_lock, FuncIRInfo
 from vyper.codegen.ir_node import IRnode
 from vyper.codegen.stmt import parse_body
 
@@ -9,7 +9,6 @@ def generate_ir_for_internal_function(code: vy_ast.FunctionDef, context: Context
     """
     Parse a internal function (FuncDef), and produce full function body.
 
-    :param sig: the FuntionSignature
     :param code: ast of function
     :param context: current calling context
     :return: function body in IR
@@ -36,17 +35,19 @@ def generate_ir_for_internal_function(code: vy_ast.FunctionDef, context: Context
 
     func_t = code._metadata["type"]
 
+    info = FuncIRInfo(func_t)
+
     # Get nonreentrant lock
 
-    for arg_name, arg_type in func_t.arguments.items():
+    for arg in func_t.arguments:
         # allocate a variable for every arg, setting mutability
         # to False to comply with vyper semantics, function arguments are immutable
-        context.new_variable(arg_name, arg_typ, is_mutable=False)
+        context.new_variable(arg.name, arg.typ, is_mutable=False)
 
     nonreentrant_pre, nonreentrant_post = get_nonreentrant_lock(func_t)
 
-    function_entry_label = sig.internal_function_label
-    cleanup_label = sig.exit_sequence_label
+    function_entry_label = info.internal_function_label
+    cleanup_label = info.exit_sequence_label
 
     stack_args = ["var_list"]
     if func_t.return_type:

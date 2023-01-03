@@ -3,6 +3,7 @@ import warnings
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Set, Tuple
 from functools import cached_property
+from dataclasses import dataclass
 
 from vyper import ast as vy_ast
 from vyper.ast.validation import validate_call_args
@@ -30,6 +31,19 @@ from vyper.semantics.types.shortcuts import UINT256_T
 from vyper.semantics.types.subscriptable import TupleT
 from vyper.semantics.types.utils import type_from_abi, type_from_annotation
 from vyper.utils import keccak256
+
+
+@dataclass
+class PositionalArg:
+    name: str
+    typ: VyperType
+
+
+@dataclass
+class KeywordArg:
+    name: str
+    typ: VyperType
+    default_value: vy_ast.VyperNode
 
 
 class ContractFunctionT(VyperType):
@@ -66,30 +80,22 @@ class ContractFunctionT(VyperType):
     def __init__(
         self,
         name: str,
-        arguments: OrderedDict[str, VyperType],
-        min_arg_count: int,
-        max_arg_count: int,
+        positional_args: List[PositionalArg],
+        keyword_args: List[KeywordArg],
         return_type: Optional[VyperType],
         function_visibility: FunctionVisibility,
         state_mutability: StateMutability,
-        default_values: Optional[List[vy_ast.VyperNode]] = None,
         nonreentrant: Optional[str] = None,
     ) -> None:
         super().__init__()
 
         self.name = name
-        self.arguments = arguments
-        self.min_arg_count = min_arg_count
-        self.max_arg_count = max_arg_count
+        self.positional_args = positional_args
+        self.keyword_args = keyword_args
         self.return_type = return_type
         self.visibility = function_visibility
         self.mutability = state_mutability
         self.nonreentrant = nonreentrant
-
-        self.kwarg_keys = list(self.arguments.keys())[min_arg_count:]
-        default_values = default_values or []
-        assert len(self.kwarg_keys) == len(default_values)
-        self.defaults = {k: v for (k, v) in zip(self.kwarg_keys, default_values)}
 
         # a list of internal functions this function calls
         self.called_functions: Set["ContractFunctionT"] = set()
@@ -102,12 +108,23 @@ class ContractFunctionT(VyperType):
             "default_return_value": KwargSettings(return_type, None),
         }
 
+    # backwards compatibility
+    @cached_property
+    def kwarg_keys(self):
+        return [kwarg.name for kwarg in self.keyword_args]
+
+    # backwards compatibility
     @cached_property
     def base_args(self):
-        raise Exception("todo")
+        return self.positional_args
+
+    # backwards compatibility
+    @cached_property
+    def arguments(self):
+        return self.positional_args + self.keyword_args
 
     def __repr__(self):
-        arg_types = ",".join(repr(a) for a in self.arguments.values())
+        arg_types = ",".join(repr(arg.typ) for arg in self.arguments)
         return f"contract function {self.name}({arg_types})"
 
     # override parent implementation. function type equality does not
@@ -133,9 +150,9 @@ class ContractFunctionT(VyperType):
         ContractFunctionT object.
         """
 
-        arguments = OrderedDict()
+        args = []
         for item in abi["inputs"]:
-            arguments[item["name"]] = type_from_abi(item)
+            args.append(PositionalArg(item["name"], type_from_abi(item)))
         return_type = None
         if len(abi["outputs"]) == 1:
             return_type = type_from_abi(abi["outputs"][0])
@@ -143,9 +160,8 @@ class ContractFunctionT(VyperType):
             return_type = TupleT(tuple(type_from_abi(i) for i in abi["outputs"]))
         return cls(
             abi["name"],
-            arguments,
-            len(arguments),
-            len(arguments),
+            args,
+            [],
             return_type,
             function_visibility=FunctionVisibility.EXTERNAL,
             state_mutability=StateMutability.from_abi(abi),
@@ -287,10 +303,13 @@ class ContractFunctionT(VyperType):
                     "Constructor may not use default arguments", node.args.defaults[0]
                 )
 
-        arguments = OrderedDict()
-        max_arg_count = len(node.args.args)
-        min_arg_count = max_arg_count - len(node.args.defaults)
-        defaults = [None] * min_arg_count + node.args.defaults
+        argnames = set()  # for checking uniqueness
+        n_kw_args = len(node.args.defaults)
+        n_total_args = len(node.args.args)
+        defaults = [None] * (n_total_args - n_kw_args) + node.args.defaults
+
+        positional_args = []
+        keyword_args = []
 
         namespace = get_namespace()
         for arg, value in zip(node.args.args, defaults):
@@ -298,7 +317,7 @@ class ContractFunctionT(VyperType):
                 raise ArgumentException(
                     f"Cannot use '{arg.arg}' as a variable name in a function input", arg
                 )
-            if arg.arg in arguments:
+            if arg.arg in argnames:
                 raise ArgumentException(f"Function contains multiple inputs named {arg.arg}", arg)
             if arg.arg in namespace:
                 raise NamespaceCollision(arg.arg, arg)
@@ -308,14 +327,17 @@ class ContractFunctionT(VyperType):
 
             type_ = type_from_annotation(arg.annotation)
 
-            if value is not None:
+            if value is None:
+                positional_args.append(PositionalArg(arg.arg, type_))
+            else:
                 if not check_kwargable(value):
                     raise StateAccessViolation(
                         "Value must be literal or environment variable", value
                     )
                 validate_expected_type(value, type_)
+                keyword_args.append(KeywordArg(arg.arg, type_, value))
 
-            arguments[arg.arg] = type_
+            argnames.add(arg.arg)
 
         # return types
         if node.returns is None:
@@ -334,14 +356,12 @@ class ContractFunctionT(VyperType):
 
         return cls(
             node.name,
-            arguments,
-            min_arg_count,
-            max_arg_count,
+            positional_args,
+            keyword_args,
             return_type,
             function_visibility=visibility,
             state_mutability=mutability,
             nonreentrant=nonreentrant,
-            default_values=node.args.defaults,
         )
 
     def set_reentrancy_key_position(self, position: StorageSlot) -> None:
@@ -373,16 +393,15 @@ class ContractFunctionT(VyperType):
         if not node.is_public:
             raise CompilerPanic("getter generated for non-public function")
         type_ = type_from_annotation(node.annotation)
-        arguments, return_type = type_.getter_signature
-        args_dict: OrderedDict = OrderedDict()
+        argtypes, return_type = type_.getter_signature
+        args = []
         for item in arguments:
-            args_dict[f"arg{len(args_dict)}"] = item
+            args.append(PositionalArg(f"arg{len(args_dict)}", item))
 
         return cls(
             node.target.id,
-            args_dict,
-            len(arguments),
-            len(arguments),
+            args,
+            [],
             return_type,
             function_visibility=FunctionVisibility.EXTERNAL,
             state_mutability=StateMutability.VIEW,
@@ -435,6 +454,14 @@ class ContractFunctionT(VyperType):
         return self.name == "__default__"
 
     @property
+    def min_arg_count(self):
+        return len(self.positional_args)
+
+    @property
+    def max_arg_count(self):
+        return len(self.arguments)
+
+    @property
     def method_ids(self) -> Dict[str, int]:
         """
         Dict of `{signature: four byte selector}` for this function.
@@ -443,7 +470,7 @@ class ContractFunctionT(VyperType):
         * For functions with default arguments, there is one key for each
           function signature.
         """
-        arg_types = [i.canonical_abi_type for i in self.arguments.values()]
+        arg_types = [i.typ.canonical_abi_type for i in self.arguments]
 
         if not self.has_default_args:
             return _generate_method_id(self.name, arg_types)
@@ -477,7 +504,7 @@ class ContractFunctionT(VyperType):
 
     @cached_property
     def has_default_args(self) -> bool:
-        return self.min_arg_count < self.max_arg_count
+        return len(self.keyword_args) > 0
 
     def fetch_call_return(self, node: vy_ast.Call) -> Optional[VyperType]:
         if node.get("func.value.id") == "self" and self.visibility == FunctionVisibility.EXTERNAL:
@@ -494,8 +521,8 @@ class ContractFunctionT(VyperType):
             if kwarg_node is not None:
                 raise CallViolation("Cannot send ether to nonpayable function", kwarg_node)
 
-        for arg, expected in zip(node.args, self.arguments.values()):
-            validate_expected_type(arg, expected)
+        for arg, expected in zip(node.args, self.arguments):
+            validate_expected_type(arg, expected.typ)
 
         # TODO this should be moved to validate_call_args
         for kwarg in node.keywords:

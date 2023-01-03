@@ -12,6 +12,32 @@ from vyper.utils import MemoryPositions, calc_mem_gas
 from vyper.semantics.types import ContractFunctionT
 
 
+@dataclass
+class FuncIRInfo:
+    func: ContractFunctionT
+
+    @cached_property
+    def _ir_identifier(self) -> str:
+        # we could do a bit better than this but it just needs to be unique
+        visibility = "internal" if self.internal else "external"
+        argz = ",".join([str(arg.typ) for arg in self.args])
+        ret = f"{visibility} {self.name} ({argz})"
+        return mkalphanum(ret)
+
+    @cached_property
+    # common entry point for external function with kwargs
+    def external_function_base_entry_label(self):
+        assert not self.internal
+
+        return self._ir_identifier + "_common"
+
+    @cached_property
+    def internal_function_label(self):
+        assert self.internal, "why are you doing this"
+
+        return self._ir_identifier
+
+
 def generate_ir_for_function(
     code: vy_ast.FunctionDef,
     sigs: Dict[str, Dict[str, ContractFunctionT]],  # all signatures in all namespaces
