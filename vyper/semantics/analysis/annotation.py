@@ -36,7 +36,6 @@ class _AnnotationVisitorBase:
 
 
 class StatementAnnotationVisitor(_AnnotationVisitorBase):
-
     ignored_types = (vy_ast.Break, vy_ast.Continue, vy_ast.Pass, vy_ast.Raise)
 
     def __init__(self, fn_node: vy_ast.FunctionDef, namespace: dict) -> None:
@@ -99,7 +98,6 @@ class StatementAnnotationVisitor(_AnnotationVisitorBase):
 
 
 class ExpressionAnnotationVisitor(_AnnotationVisitorBase):
-
     ignored_types = ()
 
     def __init__(self, fn_node: ContractFunctionT):
@@ -127,9 +125,6 @@ class ExpressionAnnotationVisitor(_AnnotationVisitorBase):
     def visit_BoolOp(self, node, type_):
         for value in node.values:
             self.visit(value)
-
-    def visit_Bytes(self, node, type_):
-        node._metadata["type"] = type_
 
     def visit_Call(self, node, type_):
         call_type = get_exact_type_from_node(node.func)
@@ -201,14 +196,8 @@ class ExpressionAnnotationVisitor(_AnnotationVisitorBase):
     def visit_Dict(self, node, type_):
         node._metadata["type"] = type_
 
-    def visit_Hex(self, node, type_):
-        node._metadata["type"] = type_
-
     def visit_Index(self, node, type_):
         self.visit(node.value, type_)
-
-    def visit_Int(self, node, type_):
-        node._metadata["type"] = type_
 
     def visit_List(self, node, type_):
         if type_ is None:

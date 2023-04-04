@@ -60,7 +60,7 @@ def foo(x: {typ}) -> {typ}:
         fixed_pt = 2 ** (typ.bits - 1)
         xs += [0, 1, hi - 1, hi, fixed_pt]
         ys += [0, 1, hi - 1, hi, fixed_pt]
-        for (x, y) in itertools.product(xs, ys):
+        for x, y in itertools.product(xs, ys):
             expected = fn(x, y) % mod_bound
             assert c1.foo(x, y) == expected
 

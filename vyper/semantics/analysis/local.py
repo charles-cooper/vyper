@@ -40,6 +40,7 @@ from vyper.semantics.types import (
     IntegerT,
     SArrayT,
     StringT,
+    StructT,
     TupleT,
     is_type_t,
 )
@@ -48,7 +49,6 @@ from vyper.semantics.types.utils import type_from_annotation
 
 
 def validate_functions(vy_module: vy_ast.Module) -> None:
-
     """Analyzes a vyper ast and validates the function-level namespaces."""
 
     err_list = ExceptionList()
@@ -159,7 +159,6 @@ def _validate_msg_data_attribute(node: vy_ast.Attribute) -> None:
 
 
 class FunctionNodeVisitor(VyperNodeVisitorBase):
-
     ignored_types = (vy_ast.Constant, vy_ast.Pass)
     scope_name = "function"
 
@@ -383,8 +382,14 @@ class FunctionNodeVisitor(VyperNodeVisitorBase):
                     if args[0].value >= args[1].value:
                         raise StructureException("Second value must be > first value", args[1])
 
+                if not type_list:
+                    raise TypeMismatch("Iterator values are of different types", node.iter)
+
         else:
             # iteration over a variable or literal list
+            if isinstance(node.iter, vy_ast.List) and len(node.iter.elements) == 0:
+                raise StructureException("For loop must have at least 1 iteration", node.iter)
+
             type_list = [
                 i.value_type
                 for i in get_possible_types_from_node(node.iter)
@@ -433,6 +438,9 @@ class FunctionNodeVisitor(VyperNodeVisitorBase):
                         )
         self.expr_visitor.visit(node.iter)
 
+        if not isinstance(node.target, vy_ast.Name):
+            raise StructureException("Invalid syntax for loop iterator", node.target)
+
         for_loop_exceptions = []
         iter_name = node.target.id
         for type_ in type_list:
@@ -479,6 +487,9 @@ class FunctionNodeVisitor(VyperNodeVisitorBase):
         fn_type = get_exact_type_from_node(node.value.func)
         if is_type_t(fn_type, EventT):
             raise StructureException("To call an event you must use the `log` statement", node)
+
+        if is_type_t(fn_type, StructT):
+            raise StructureException("Struct creation without assignment is disallowed", node)
 
         if isinstance(fn_type, ContractFunctionT):
             if (

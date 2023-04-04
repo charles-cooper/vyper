@@ -154,11 +154,11 @@ class NumericT(_PrimT):
             # TODO double check: this code seems duplicated with constant eval
             # constant folding ensures one of `(left, right)` is never a literal
             if isinstance(left, vy_ast.Int):
-                if left.value >= 2 ** value_bits:
+                if left.value >= 2**value_bits:
                     raise OverflowException(
                         "Base is too large, calculation will always overflow", left
                     )
-                elif left.value < -(2 ** value_bits):
+                elif left.value < -(2**value_bits):
                     raise OverflowException(
                         "Base is too small, calculation will always underflow", left
                     )
@@ -219,9 +219,10 @@ class IntegerT(NumericT):
 
     @cached_property
     def _invalid_ops(self):
+        invalid_ops = (vy_ast.Not,)
         if not self.is_signed:
-            return (vy_ast.USub,)
-        return ()
+            return invalid_ops + (vy_ast.USub,)
+        return invalid_ops
 
     @classmethod
     # TODO maybe cache these three classmethods
@@ -265,7 +266,7 @@ class DecimalT(NumericT):
     _decimal_places = 10  # TODO generalize
     _id = "decimal"
     _is_signed = True
-    _invalid_ops = (vy_ast.Pow,)
+    _invalid_ops = (vy_ast.Pow, vy_ast.BitAnd, vy_ast.BitOr, vy_ast.BitXor, vy_ast.Not)
     _valid_literal = (vy_ast.Decimal,)
 
     _equality_attrs = ("_bits", "_decimal_places")

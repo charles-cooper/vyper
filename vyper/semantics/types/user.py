@@ -37,7 +37,11 @@ class _UserType(VyperType):
 
 # note: enum behaves a lot like uint256, or uints in general.
 class EnumT(_UserType):
+    # this is a carveout because currently we allow dynamic arrays of
+    # enums, but not static arrays of enums
+    _as_darray = True
     _is_prim_word = True
+    _as_hashmap_key = True
 
     def __init__(self, name: str, members: dict) -> None:
         if len(members.keys()) > 256:
@@ -51,6 +55,9 @@ class EnumT(_UserType):
         # use a VyperType for convenient access to the `get_member` function
         # also conveniently checks well-formedness of the members namespace
         self._helper = VyperType(members)
+
+        # set the name for exception handling in `get_member`
+        self._helper._id = name
 
     def get_type_member(self, key: str, node: vy_ast.VyperNode) -> "VyperType":
         self._helper.get_member(key, node)
@@ -99,9 +106,12 @@ class EnumT(_UserType):
         members: Dict = {}
 
         if len(base_node.body) == 1 and isinstance(base_node.body[0], vy_ast.Pass):
-            raise EnumDeclarationException("Enum must have members")
+            raise EnumDeclarationException("Enum must have members", base_node)
 
         for i, node in enumerate(base_node.body):
+            if not isinstance(node, vy_ast.Expr) or not isinstance(node.value, vy_ast.Name):
+                raise EnumDeclarationException("Invalid syntax for enum member", node)
+
             member_name = node.value.id
             if member_name in members:
                 raise EnumDeclarationException(
@@ -247,7 +257,6 @@ class EventT(_UserType):
 
 
 class InterfaceT(_UserType):
-
     _type_members = {"address": AddressT()}
     _is_prim_word = True
     _as_array = True
@@ -453,6 +462,10 @@ def _get_class_functions(base_node: vy_ast.InterfaceDef) -> Dict[str, ContractFu
         if node.name in functions:
             raise NamespaceCollision(
                 f"Interface contains multiple functions named '{node.name}'", node
+            )
+        if len(node.decorator_list) > 0:
+            raise StructureException(
+                "Function definition in interface cannot be decorated", node.decorator_list[0]
             )
         functions[node.name] = ContractFunctionT.from_FunctionDef(node, is_interface=True)
 
