@@ -1,6 +1,7 @@
 import copy
 import functools
 import math
+from dataclasses import dataclass
 
 from vyper.codegen.ir_node import IRnode
 from vyper.evm.opcodes import get_opcodes
@@ -204,6 +205,8 @@ def compile_to_assembly(code, no_optimize=False):
     global _revert_label
     _revert_label = mksymbol("revert")
 
+    _analyze1(code)
+
     # don't overwrite ir since the original might need to be output, e.g. `-f ir,asm`
     code = copy.deepcopy(code)
     _rewrite_return_sequences(code)
@@ -215,6 +218,54 @@ def compile_to_assembly(code, no_optimize=False):
         _optimize_assembly(res)
     return res
 
+
+@dataclass
+class _VarReference:
+    n: int  # the number of times this has been referenced
+    definition: IRnode  # where this variable was defined
+
+
+@dataclass
+class _VarDefinition:
+    n: int # number of times the variable gets referenced
+    analysable: bool # whether its liveness can be analysed
+
+def _analyze1(code, vars_=None, in_branch=False):
+    if vars_ is None:
+        vars_ = {}
+
+    if code.value == "with":
+        varname = code.args[0].value
+        assert isinstance(varname, str)
+        old = vars_.get(varname, None)
+
+        code.vardef = _VarDefinition(0, True)
+
+        vars_[varname] = code.vardef
+
+        for arg in code.args[1:]:
+            _analyze1(arg, vars_, in_branch=in_branch)
+
+        if old is not None:
+            vars_[varname] = old
+        else:
+            del vars_[varname]
+
+
+    elif isinstance(code.value, str) and code.value in vars_:
+        def_ = vars_[code.value]
+
+        if in_branch:
+            def_.analysable = False
+
+        code.analysis = _VarReference(def_.n, def_)
+
+        def_.n += 1
+
+    else:
+        is_branching = code.value in ("if", "repeat")
+        for arg in code.args:
+            _analyze1(arg, vars_, in_branch=is_branching)
 
 # Compiles IR to assembly
 @apply_line_numbers
@@ -235,8 +286,16 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
             ofst = _compile_to_assembly(ofst, withargs, existing_labels, break_dest, height_)
             return ofst + [sym, "ADD"]
 
+    def _dead_count():
+        ret = 0
+        for _, height in withargs.items():
+            if height is None:
+                ret += 1
+
+        return ret
+
     def _height_of(witharg):
-        ret = height - withargs[witharg]
+        ret = height - _dead_count() - withargs[witharg]
         if ret > 16:
             raise Exception("With statement too deep")
         return ret
@@ -264,7 +323,23 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
     # Variables connected to with statements
     elif isinstance(code.value, str) and code.value in withargs:
-        return ["DUP" + str(_height_of(code.value))]
+        assert code.analysis.n <= code.analysis.definition.n, "invariant"
+
+        if code.analysis.n  < code.analysis.definition.n:
+            return ["DUP" + str(_height_of(code.value))]
+
+        # else, we can swap it in.
+        ret = ["SWAP" + str(_height_of(code.value) - 1)]
+        for x, height in withargs:
+            if height == 1:
+                withargs[x] = withargs[code.value]
+                withargs[code.value] = None
+                break
+        else:
+            raise Exception("Uh oh")
+
+        return ret
+
 
     # Setting variables connected to with statements
     elif code.value == "set":
@@ -479,10 +554,14 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
         o.extend(
             _compile_to_assembly(code.args[2], withargs, existing_labels, break_dest, height + 1)
         )
-        if code.args[2].valency:
-            o.extend(["SWAP1", "POP"])
-        else:
-            o.extend(["POP"])
+
+        if not code.vardef.analysable:
+            # we couldn't analyse the liveness, so we have to manually swap
+            # (instead of assuming it is already consumed)
+            if code.args[2].valency:
+                o.extend(["SWAP1", "POP"])
+            else:
+                o.extend(["POP"])
         if old is not None:
             withargs[code.args[0].value] = old
         else:
@@ -1113,7 +1192,7 @@ def assembly_to_evm(
             to_skip -= 1
             continue
 
-        if item in ("DEBUG", "BLANK"):
+        if item in ("DEBUG", "BLANK", "SWAP0"):
             continue  # skippable opcodes
 
         elif isinstance(item, str) and item.startswith("_DEPLOY_MEM_OFST_"):
