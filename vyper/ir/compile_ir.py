@@ -323,11 +323,11 @@ def _compile_to_assembly(code, withargs=None, existing_labels=None, break_dest=N
 
     # Variables connected to with statements
     elif isinstance(code.value, str) and code.value in withargs:
-        assert code.analysis.n <= code.analysis.definition.n, "invariant"
 
-        if code.analysis.n  < code.analysis.definition.n:
+        if not hasattr(code, "analysis") or code.analysis.n  < code.analysis.definition.n:
             return ["DUP" + str(_height_of(code.value))]
 
+        assert code.analysis.n <= code.analysis.definition.n, "invariant"
         # else, we can swap it in.
         ret = ["SWAP" + str(_height_of(code.value) - 1)]
         for x, height in withargs:
