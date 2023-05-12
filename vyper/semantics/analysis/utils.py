@@ -374,6 +374,28 @@ class _ExprAnalyser:
 
         return types_list
 
+    def types_from_ListComp(self, node):
+        if len(node.generators) != 1:
+            # TODO figure out how to do multiple generators
+            raise SyntaxException("only one generator allowed")
+
+        # TODO this is going to be much cleaner with a dedicated
+        # `GeneratorT` type. then we can call `types_from_comprehension`
+        # and get a `GeneratorT` back.
+        generator = node.generators[0]
+        # ast note: x in xs: target=x, iter=xs
+        target_type = get_exact_type_from_node(generator.iter)
+        if not isinstance(target_type, DArrayT):
+            raise Exception("only dynarrays")
+        iter_type = target_type.value_type
+        iter_id = generator.target.id
+        namespace = get_namespace()
+        with namespace.enter_scope():
+            namespace[iter_id] = VarInfo(iter_type, is_constant=True)
+            child_types = get_possible_types_from_node(node.elt)
+            ret = [DArrayT(t, target_type.count) for t in child_types]
+        return ret
+
 
 def _is_empty_list(node):
     # Checks if a node is a `List` node with an empty list for `elements`,

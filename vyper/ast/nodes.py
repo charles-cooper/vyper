@@ -1434,6 +1434,14 @@ class IfExp(ExprNode):
     __slots__ = ("test", "body", "orelse")
 
 
+class comprehension(ExprNode):
+    __slots__ = ("target", "iter")
+    _only_empty_fields = ("ifs", "async")
+
+class ListComp(ExprNode):
+    __slots__ = ("elt", "generators")
+
+
 class For(Stmt):
     __slots__ = ("iter", "target", "body")
     _only_empty_fields = ("orelse",)
