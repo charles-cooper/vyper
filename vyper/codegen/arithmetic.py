@@ -177,7 +177,7 @@ def safe_add(x, y):
             # TODO push down into optimizer rules.
             ok = ["ge", res, x]
 
-        check = IRnode.from_list(["assert", ok], error_msg="safeadd")
+        check = IRnode.from_list(["assert", ok], error_msg=f"{typ} safeadd")
         ret = IRnode.from_list(["seq", check, res])
         return b1.resolve(ret)
 
@@ -208,7 +208,7 @@ def safe_sub(x, y):
             # TODO push down into optimizer rules.
             ok = ["le", res, x]
 
-        check = IRnode.from_list(["assert", ok], error_msg="safesub")
+        check = IRnode.from_list(["assert", ok], error_msg=f"{typ} safesub")
         ret = IRnode.from_list(["seq", check, res])
         return b1.resolve(ret)
 
@@ -226,7 +226,7 @@ def safe_mul(x, y):
         x = y
         y = tmp
 
-    res = IRnode.from_list(["mul", x, y], typ=x.typ)
+    res = IRnode.from_list(["mul", x, y], typ=typ)
 
     DIV = "sdiv" if typ.is_signed else "div"
 
@@ -265,8 +265,8 @@ def safe_mul(x, y):
                 # not an evil value
                 pass
 
-        if is_decimal_type(res.typ):
-            res = IRnode.from_list([DIV, res, typ.divisor], typ=res.typ)
+        if is_decimal_type(typ):
+            res = IRnode.from_list([DIV, res, typ.divisor], typ=typ)
 
         # check overflow mod <bits>
         # NOTE: if 128 < bits < 256, `x * y` could be between
@@ -275,8 +275,8 @@ def safe_mul(x, y):
         # (if bits == 256, clamp_basetype is a no-op)
         res = clamp_basetype(res)
 
-        check = IRnode.from_list(["assert", ok], error_msg="safemul")
-        res = IRnode.from_list(["seq", check, res], typ=res.typ)
+        check = IRnode.from_list(["assert", ok], error_msg=f"{typ} safemul")
+        res = IRnode.from_list(["seq", check, res], typ=typ)
 
         return b1.resolve(res)
 
@@ -333,7 +333,7 @@ def safe_div(x, y):
             # TODO maybe use safe_mul
             res = clamp_basetype(res)
 
-        check = IRnode.from_list(["assert", ok], error_msg="safediv")
+        check = IRnode.from_list(["assert", ok], error_msg=f"{typ} safediv")
         return IRnode.from_list(b1.resolve(["seq", check, res]))
 
 
@@ -341,7 +341,7 @@ def safe_div(x, y):
 def safe_mod(x, y):
     typ = x.typ
     MOD = "smod" if typ.is_signed else "mod"
-    return IRnode.from_list([MOD, x, clamp("gt", y, 0)], error_msg="safemod")
+    return IRnode.from_list([MOD, x, clamp("gt", y, 0)], error_msg=f"{typ} safemod")
 
 
 # def safe_pow(x: IRnode, y: IRnode) -> IRnode:
@@ -380,5 +380,5 @@ def safe_pow(x, y):
         # remove the check in `vyper/context/types/value/numeric.py`
         return
 
-    assertion = IRnode.from_list(["assert", ok], error_msg="safepow")
+    assertion = IRnode.from_list(["assert", ok], error_msg=f"{typ} safepow")
     return IRnode.from_list(["seq", assertion, ["exp", x, y]])
