@@ -1457,6 +1457,21 @@ class If(Stmt):
 class IfExp(ExprNode):
     __slots__ = ("test", "body", "orelse")
 
+class Match(ExprNode):
+    __slots__ = ("subject","cases")
+
+class match_case(ExprNode):
+    __slots__ = ("pattern", "guard", "body")
+
+class MatchValue(ExprNode):
+    __slots__ = ("value",)
+
+class MatchClass(ExprNode):
+    __slots__ = ("cls", "patterns", "kwd_attrs", "kwd_patterns")
+
+class MatchAs(ExprNode):
+    __slots__ = ("name",)
+
 
 class For(Stmt):
     __slots__ = ("iter", "target", "body")

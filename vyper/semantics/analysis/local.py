@@ -550,6 +550,9 @@ class FunctionNodeVisitor(VyperNodeVisitorBase):
         f.fetch_call_return(node.value)
         self.expr_visitor.visit(node.value)
 
+    def visit_Match(self, node: vy_ast.Match) -> None:
+        print(node._children)
+
 
 class _LocalExpressionVisitor(VyperNodeVisitorBase):
     ignored_types = (vy_ast.Constant, vy_ast.Name)
