@@ -368,6 +368,7 @@ class Expr:
         left = Expr.parse_value_expr(self.expr.left, self.context)
         right = Expr.parse_value_expr(self.expr.right, self.context)
 
+        assert is_numeric_type(left.typ)
         if not isinstance(self.expr.op, (vy_ast.LShift, vy_ast.RShift)):
             # Sanity check - ensure that we aren't dealing with different types
             # This should be unreachable due to the type check pass
