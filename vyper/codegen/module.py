@@ -62,8 +62,6 @@ def _runtime_ir(runtime_functions, global_ctx):
     payables = [f for f in regular_functions if _is_payable(f)]
     nonpayables = [f for f in regular_functions if not _is_payable(f)]
 
-    # create a map of the IR functions since they might live in both
-    # runtime and deploy code (if init function calls them)
     internal_functions_ir: list[IRnode] = []
 
     for func_ast in internal_functions:
@@ -148,11 +146,6 @@ def generate_ir_for_module(global_ctx: GlobalContext) -> tuple[IRnode, IRnode]:
     deploy_code: List[Any] = ["seq"]
     immutables_len = global_ctx.immutable_section_bytes
     if init_function:
-        # TODO might be cleaner to separate this into an _init_ir helper func
-        init_func_ir = generate_ir_for_function(
-            init_function, global_ctx, skip_nonpayable_check=False, is_ctor_context=True
-        )
-
         # pass the amount of memory allocated for the init function
         # so that deployment does not clobber while preparing immutables
         # note: (deploy mem_ofst, code, extra_padding)
@@ -175,11 +168,6 @@ def generate_ir_for_module(global_ctx: GlobalContext) -> tuple[IRnode, IRnode]:
         if immutables_len > 0:
             deploy_code.append(["iload", max(0, immutables_len - 32)])
 
-        deploy_code.append(init_func_ir)
-
-        deploy_code.append(["deploy", init_mem_used, runtime, immutables_len])
-
-        # internal functions come after everything else
         internal_functions = [f for f in runtime_functions if _is_internal(f)]
         for f in internal_functions:
             init_func_t = init_function._metadata["type"]
@@ -190,7 +178,19 @@ def generate_ir_for_module(global_ctx: GlobalContext) -> tuple[IRnode, IRnode]:
             func_ir = generate_ir_for_function(
                 f, global_ctx, skip_nonpayable_check=False, is_ctor_context=True
             )
-            deploy_code.append(func_ir)
+            internal_func_irs.append(func_ir)
+
+        # generate init_func_ir after callees to ensure they have analyzed
+        # memory usage.
+        # TODO might be cleaner to separate this into an _init_ir helper func
+        init_func_ir = generate_ir_for_function(
+            init_function, global_ctx, skip_nonpayable_check=False, is_ctor_context=True
+        )
+
+        deploy_code.append(init_func_ir)
+        deploy_code.append(["deploy", init_mem_used, runtime, immutables_len])
+        # internal functions come at end of initcode
+        deploy_code.extend(internal_func_irs)
 
     else:
         if immutables_len != 0:
