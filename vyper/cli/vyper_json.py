@@ -385,6 +385,7 @@ def compile_from_input_dict(
     contract_sources: ContractCodes = get_input_dict_contracts(input_dict)
     interface_sources = get_input_dict_interfaces(input_dict)
     output_formats = get_input_dict_output_formats(input_dict, contract_sources)
+    storage_layouts = input_dict.get("storage_layout_override", None)
 
     compiler_data, warning_data = {}, {}
     warnings.simplefilter("always")
@@ -404,6 +405,7 @@ def compile_from_input_dict(
                     initial_id=id_,
                     settings=settings,
                     no_bytecode_metadata=no_bytecode_metadata,
+                    storage_layouts=storage_layout_override,
                 )
             except Exception as exc:
                 return exc_handler(contract_path, exc, "compiler"), {}
