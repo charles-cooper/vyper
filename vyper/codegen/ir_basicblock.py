@@ -75,6 +75,7 @@ class IRVariable(IRValueBase):
     MemType = Enum("MemType", ["OPERAND_STACK", "MEMORY"])
     mem_type: MemType = MemType.OPERAND_STACK
     mem_addr: int = -1  # REVIEW should this be None?
+    last_use: tuple[int, "IRInstruction"] = None
 
     def __init__(
         self, value: IRValueBaseValue, mem_type: MemType = MemType.OPERAND_STACK, mem_addr: int = -1
@@ -349,17 +350,21 @@ class IRBasicBlock:
         """
         liveness = self.out_vars.copy()
         # REVIEW: use `reversed()` here
-        for instruction in self.instructions[::-1]:
+        for neg_i, instruction in enumerate(reversed(self.instructions)):
             ops = instruction.get_input_operands()
+            # liveness after this instruction executes
+            post_liveness = liveness.copy()
+            # liveness before this instructions executes
             liveness = liveness.union(OrderedSet.fromkeys(ops))
-            out = (
-                instruction.get_output_operands()[0]
-                if len(instruction.get_output_operands()) > 0
-                else None
-            )
+            outs = instruction.get_output_operands()
+            out = outs[0] if outs else None
             if out in liveness:
                 liveness.remove(out)
             instruction.liveness = liveness
+
+            for variable in liveness.difference(post_liveness):
+                i = len(self.instructions) - neg_i
+                variable.last_use = i, instruction
 
     def copy(self):
         bb = IRBasicBlock(self.label, self.parent)
