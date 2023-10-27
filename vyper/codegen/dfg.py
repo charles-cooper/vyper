@@ -332,36 +332,6 @@ def _generate_evm_for_instruction_r(
     if inst.ret is not None:
         stack_map.push(inst.ret)
 
-    if inst.ret and inst.ret.last_use is not None:
-        cur_idx, cur_last_use = inst.ret.last_use
-        min_idx = cur_idx
-        min_item = inst.ret
-
-        # heuristic: search for item with min liveness and try to swap
-        # with it.
-        bb = inst.parent
-        #print(inst.liveness)
-        assert stack_map.stack_map[-1] == inst.ret
-        for item in stack_map.stack_map[:-1]:
-            if not isinstance(item, IRVariable):
-                continue
-            if item == inst.ret:
-                continue
-            if item.last_use is None:
-                continue
-            idx, last_use_instr = item.last_use
-            if last_use_instr.parent != bb:
-                continue
-            if idx < min_idx:
-                min_idx = idx
-                min_item = item
-
-        # we found a match
-        if min_idx != cur_idx:
-            depth = stack_map.get_depth_in(min_item)
-            stack_map.swap(assembly, depth)
-
-
     # Step 5: Emit the EVM instruction(s)
     if opcode in ONE_TO_ONE_INSTRUCTIONS:
         assembly.append(opcode.upper())
@@ -461,6 +431,37 @@ def _generate_evm_for_instruction_r(
         assert isinstance(inst.ret, IRVariable), "Return value must be a variable"
         if inst.ret.mem_type == IRVariable.MemType.MEMORY:
             assembly.extend([*PUSH(inst.ret.mem_addr)])
+        else:
+            if inst.ret.last_use is not None:
+                cur_idx, cur_last_use = inst.ret.last_use
+                min_idx = cur_idx
+                min_item = inst.ret
+
+                # heuristic: search for item with min liveness and try to swap
+                # with it.
+                bb = inst.parent
+                #print(inst.liveness)
+                assert stack_map.stack_map[-1] == inst.ret
+                for item in stack_map.stack_map[:-1]:
+                    if not isinstance(item, IRVariable):
+                        continue
+                    if item == inst.ret:
+                        continue
+                    if item.last_use is None:
+                        continue
+                    idx, last_use_instr = item.last_use
+                    if last_use_instr.parent != bb:
+                        continue
+                    if idx < min_idx:
+                        min_idx = idx
+                        min_item = item
+
+                # we found a match
+                if min_idx != cur_idx:
+                    depth = stack_map.get_depth_in(min_item)
+                    stack_map.swap(assembly, depth)
+
+
 
     return assembly
 
