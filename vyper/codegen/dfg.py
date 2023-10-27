@@ -341,7 +341,8 @@ def _generate_evm_for_instruction_r(
         # with it.
         bb = inst.parent
         #print(inst.liveness)
-        for item in stack_map.stack_map[1:]:
+        assert stack_map.stack_map[-1] == inst.ret
+        for item in stack_map.stack_map[:-1]:
             if not isinstance(item, IRVariable):
                 continue
             if item == inst.ret:
