@@ -314,6 +314,7 @@ def _generate_evm_for_instruction_r(
         return assembly
 
     # Step 2: Emit instruction's input operands
+    #print("INPUTS", operands, inst)
     _emit_input_operands(ctx, assembly, inst, operands, stack_map)
 
     # Step 3: Reorder stack
@@ -458,10 +459,10 @@ def _generate_evm_for_instruction_r(
 
                 # we found a match
                 if min_idx != cur_idx:
+                    #print("MATCH", min_item, inst.ret, stack_map.stack_map)
                     depth = stack_map.get_depth_in(min_item)
                     stack_map.swap(assembly, depth)
-
-
+                    #print("NEW STACK", stack_map.stack_map)
 
     return assembly
 
