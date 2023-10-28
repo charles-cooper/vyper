@@ -444,9 +444,8 @@ def _generate_evm_for_instruction_r(
                 #print(inst.liveness)
                 assert stack_map.stack_map[-1] == inst.ret
                 for item in stack_map.stack_map[:-1]:
+                    assert item is not inst.ret
                     if not isinstance(item, IRVariable):
-                        continue
-                    if item == inst.ret:
                         continue
                     if item.last_use is None:
                         continue
