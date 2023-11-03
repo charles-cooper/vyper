@@ -86,10 +86,10 @@ def _compute_dup_requirements_bb(bb: IRBasicBlock, dfg: DFG) -> None:
         inst.dup_requirements = OrderedSet()
 
         for op in inst.get_inputs():
-            uses = dfg.get_uses(op)
+            uses = [inst for inst in dfg.get_uses(op) if inst.parent == bb]
             assert len(uses) > 0
             last_use_inst = uses[-1]
-            if inst != last_use_inst:
+            if inst != last_use_inst or op in bb.out_vars:
                 inst.dup_requirements.add(op)
 
 
