@@ -11,6 +11,7 @@ from vyper.venom.basicblock import (
 from vyper.venom.bb_optimizer import calculate_cfg, calculate_liveness
 from vyper.venom.function import IRFunction
 from vyper.venom.stack_model import StackModel
+from vyper.venom.passes.dft import DFG
 
 # binary instructions which are commutative
 _COMMUTATIVE_INSTRUCTIONS = frozenset(["add", "mul", "and", "or", "xor", "eq"])
@@ -73,29 +74,22 @@ _ONE_TO_ONE_INSTRUCTIONS = frozenset(
 # figure out which variables we need to emit DUPs for for this
 # instruction (because they are still live after the instruction
 def _compute_dup_requirements(ctx: IRFunction) -> None:
+    dfg = DFG.build_dfg(ctx)
     for bb in ctx.basic_blocks:
-        _compute_dup_requirements_bb(bb)
+        _compute_dup_requirements_bb(bb, dfg)
 
 
-def _compute_dup_requirements_bb(bb: IRBasicBlock) -> None:
+def _compute_dup_requirements_bb(bb: IRBasicBlock, dfg: DFG) -> None:
     # the most recent instruction which used this variable
-    most_recent_use_of = dict()
-
     for inst in bb.instructions:
         # reset dup_requirements
         inst.dup_requirements = OrderedSet()
 
         for op in inst.get_inputs():
-            # the variable is still live at `inst`, so we look
-            # back to `most_recent_use_of[op]` and add to its
-            # dup requirements.
-            if op in most_recent_use_of:
-                target = most_recent_use_of[op]
-                target.dup_requirements.add(op)
-
-            most_recent_use_of[op] = inst
-
-            if op in bb.out_vars:
+            uses = dfg.get_uses(op)
+            assert len(uses) > 0
+            last_use_inst = uses[-1]
+            if inst != last_use_inst:
                 inst.dup_requirements.add(op)
 
 
@@ -310,16 +304,6 @@ class VenomCompiler:
 
         # Step 2: Emit instruction's input operands
         self._emit_input_operands(assembly, inst, operands, stack)
-
-        # Step 3: Reorder stack
-        if opcode in ["jnz", "jmp"]:
-            assert isinstance(inst.parent.cfg_out, OrderedSet)
-            b = next(iter(inst.parent.cfg_out))
-            target_stack = b.in_vars_from(inst.parent)
-            # REVIEW: this seems like it generates bad code, because
-            # the next _stack_reorder will undo the changes to the stack.
-            # i think we can just remove it entirely.
-            self._stack_reorder(assembly, stack, target_stack)
 
         is_commutative = opcode in _COMMUTATIVE_INSTRUCTIONS
         self._stack_reorder(assembly, stack, operands, is_commutative)
