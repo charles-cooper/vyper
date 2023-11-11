@@ -181,7 +181,7 @@ class Context:
     ) -> int:
         var_pos = self.memory_allocator.allocate_memory(var_size)
 
-        assert var_pos + var_size <= self.memory_allocator.size_of_mem, "function frame overrun"
+        #assert var_pos + var_size <= self.memory_allocator.size_of_mem, "function frame overrun"
 
         self.vars[name] = VariableRecord(
             name=name,

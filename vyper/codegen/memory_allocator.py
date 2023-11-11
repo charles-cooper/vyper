@@ -86,6 +86,11 @@ class MemoryAllocator:
         int
             Start offset of the newly allocated memory.
         """
+    def allocate_memory(self, size: int) -> int:
+        ret = self._allocate_memory(size)
+        return ret | ((ret + size) << 128)
+
+    def _allocate_memory(self, size: int) -> int:
         if size % 32 != 0:
             raise CompilerPanic(f"tried to allocate {size} bytes, only multiples of 32 supported.")
 
@@ -125,6 +130,9 @@ class MemoryAllocator:
         """
         if size % 32 != 0:
             raise CompilerPanic("Memory misaligment, only multiples of 32 supported.")
+
+        pos, _bound = pos & (2**128 - 1), pos >> 128
+        assert _bound - pos == size
 
         self.deallocated_mem.append(FreeMemory(position=pos, size=size))
         self.deallocated_mem.sort(key=lambda k: k.position)
