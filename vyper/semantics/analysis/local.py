@@ -647,6 +647,7 @@ class _ExprVisitor(VyperNodeVisitorBase):
 
     def visit_Call(self, node: vy_ast.Call, typ: VyperType) -> None:
         call_type = get_exact_type_from_node(node.func)
+
         # except for builtin functions, `get_exact_type_from_node`
         # already calls `validate_expected_type` on the call args
         # and kwargs via `call_type.fetch_call_return`
@@ -656,6 +657,9 @@ class _ExprVisitor(VyperNodeVisitorBase):
             # function calls
             if call_type.is_internal:
                 self.func.called_functions.add(call_type)
+            if isinstance(call_type.return_type, _BytestringT) and not call_type.return_type.length:
+                # return type is a bytestring with unknown length: use the type of the expression
+                call_type.return_type = typ
             for arg, typ in zip(node.args, call_type.argument_types):
                 self.visit(arg, typ)
             for kwarg in node.keywords:

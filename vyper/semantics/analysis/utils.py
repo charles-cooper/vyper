@@ -160,7 +160,7 @@ class _ExprAnalyser:
                     raise InvalidReference(f"not a variable or literal: '{invalid.typedef}'", node)
 
             if all(isinstance(i, IntegerT) for i in ret):
-                # for numeric types, sort according by number of bits descending
+                # for numeric types, sort according to number of bits descending
                 # this ensures literals are cast with the largest possible type
                 ret.sort(key=lambda k: (k.bits, not k.is_signed), reverse=True)
 

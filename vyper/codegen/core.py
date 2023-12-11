@@ -858,14 +858,7 @@ def make_setter(left, right):
     # Byte arrays
     elif isinstance(left.typ, _BytestringT):
         # TODO rethink/streamline the clamp_basetype logic
-        if left.typ.length and not right.typ.length:
-            # right side has unknown size, check it during runtime
-            with right.cache_when_complex("bs_ptr") as (b, right):
-                clamped = clamp("le", get_bytearray_length(right), left.typ.length)
-                copier = make_byte_array_copier(left, right)
-                ret = b.resolve(["seq", clamped, copier])
-
-        elif needs_clamp(right.typ, right.encoding):
+        if needs_clamp(right.typ, right.encoding):
             with right.cache_when_complex("bs_ptr") as (b, right):
                 copier = make_byte_array_copier(left, right)
                 ret = b.resolve(["seq", clamp_bytestring(right), copier])
