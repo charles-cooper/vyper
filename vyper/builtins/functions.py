@@ -2398,12 +2398,12 @@ class ABIEncode(BuiltinFunctionT):
         else:
             arg_abi_t = ABI_Tuple(arg_abi_types)
 
-        max_length = arg_abi_t.size_bound()
+        length = arg_abi_t.size_bound()
         if has_method_id:
             # the output includes 4 bytes for the method_id.
-            max_length += 4
+            length += 4
 
-        return BytesT(max_length)
+        return BytesT(length)
 
     @staticmethod
     def _parse_method_id(method_id_literal):
