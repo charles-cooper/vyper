@@ -110,7 +110,7 @@ def make_byte_array_copier(dst, src):
     _check_assign_bytes(dst, src)
 
     # TODO: remove this branch, copy_bytes and get_bytearray_length should handle
-    if src.value == "~empty" or src.typ.maxlen == 0:
+    if src.value == "~empty" or src.typ.length == 0:
         # set length word to 0.
         return STORE(dst, 0)
 
@@ -118,7 +118,7 @@ def make_byte_array_copier(dst, src):
         has_storage = STORAGE in (src.location, dst.location)
         is_memory_copy = dst.location == src.location == MEMORY
         batch_uses_identity = is_memory_copy and not version_check(begin="cancun")
-        if src.typ.maxlen <= 32 and (has_storage or batch_uses_identity):
+        if src.typ.length <= 32 and (has_storage or batch_uses_identity):
             # it's cheaper to run two load/stores instead of copy_bytes
 
             ret = ["seq"]
@@ -134,7 +134,7 @@ def make_byte_array_copier(dst, src):
 
         # batch copy the bytearray (including length word) using copy_bytes
         len_ = add_ofst(get_bytearray_length(src), 32)
-        max_bytes = src.typ.maxlen + 32
+        max_bytes = src.typ.length + 32
         ret = copy_bytes(dst, src, len_, max_bytes)
         return b1.resolve(ret)
 
@@ -701,11 +701,11 @@ def dummy_node_for_type(typ):
 
 
 def _check_assign_bytes(left, right):
-    if right.typ.maxlen > left.typ.maxlen:
+    if right.typ.length > left.typ.length:
         raise TypeMismatch(f"Cannot cast from {right.typ} to {left.typ}")  # pragma: notest
 
     # stricter check for zeroing a byte array.
-    if right.value == "~empty" and right.typ.maxlen != left.typ.maxlen:
+    if right.value == "~empty" and right.typ.length != left.typ.length:
         raise TypeMismatch(f"Cannot cast from empty({right.typ}) to {left.typ}")  # pragma: notest
 
 
@@ -1116,7 +1116,7 @@ def clamp_bytestring(ir_node):
     t = ir_node.typ
     if not isinstance(t, _BytestringT):
         raise CompilerPanic(f"{t} passed to clamp_bytestring")  # pragma: notest
-    ret = ["assert", ["le", get_bytearray_length(ir_node), t.maxlen]]
+    ret = ["assert", ["le", get_bytearray_length(ir_node), t.length]]
     return IRnode.from_list(ret, error_msg=f"{ir_node.typ} bounds check")
 
 

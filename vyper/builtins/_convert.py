@@ -194,7 +194,7 @@ def _int_to_int(arg, out_typ):
 
 def _check_bytes(expr, arg, output_type, max_bytes_allowed):
     if isinstance(arg.typ, _BytestringT):
-        if arg.typ.maxlen > max_bytes_allowed:
+        if arg.typ.length > max_bytes_allowed:
             _FAIL(arg.typ, output_type, expr)
     else:
         # sanity check. should not have conversions to non-base types
@@ -209,8 +209,8 @@ def _signextend(expr, val, arg_typ):
         assert len(expr.value[2:]) // 2 == arg_typ.m
         n_bits = arg_typ.m_bits
     else:
-        assert len(expr.value) == arg_typ.maxlen
-        n_bits = arg_typ.maxlen * 8
+        assert len(expr.value) == arg_typ.length
+        n_bits = arg_typ.length * 8
 
     return unsigned_to_signed(val, n_bits)
 
@@ -293,7 +293,7 @@ def _to_int(expr, arg, out_typ):
     elif isinstance(arg.typ, BytesT):
         arg_typ = arg.typ
         arg = _bytes_to_num(arg, out_typ, signed=out_typ.is_signed)
-        if arg_typ.maxlen * 8 > out_typ.bits:
+        if arg_typ.length * 8 > out_typ.bits:
             arg = int_clamp(arg, out_typ.bits, signed=out_typ.is_signed)
 
     elif is_bytes_m_type(arg.typ):
@@ -336,7 +336,7 @@ def to_decimal(expr, arg, out_typ):
     if isinstance(arg.typ, BytesT):
         arg_typ = arg.typ
         arg = _bytes_to_num(arg, out_typ, signed=True)
-        if arg_typ.maxlen * 8 > 168:
+        if arg_typ.length * 8 > 168:
             arg = IRnode.from_list(arg, typ=out_typ)
             arg = clamp_basetype(arg)
 
@@ -425,7 +425,7 @@ def to_address(expr, arg, out_typ):
 # question: should we allow bytesM -> String?
 @_input_types(BytesT)
 def to_string(expr, arg, out_typ):
-    _check_bytes(expr, arg, out_typ, out_typ.maxlen)
+    _check_bytes(expr, arg, out_typ, out_typ.length)
 
     # NOTE: this is a pointer cast
     return IRnode.from_list(arg, typ=out_typ)
@@ -433,7 +433,7 @@ def to_string(expr, arg, out_typ):
 
 @_input_types(StringT)
 def to_bytes(expr, arg, out_typ):
-    _check_bytes(expr, arg, out_typ, out_typ.maxlen)
+    _check_bytes(expr, arg, out_typ, out_typ.length)
 
     # TODO: more casts
 

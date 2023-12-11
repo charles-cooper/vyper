@@ -49,6 +49,6 @@ def keccak256_helper(to_hash, context):
                 ["sha3", data, len_],
                 typ=BYTES32_T,
                 annotation="keccak256",
-                add_gas_estimate=_gas_bound(ceil(to_hash.typ.maxlen / 32)),
+                add_gas_estimate=_gas_bound(ceil(to_hash.typ.length / 32)),
             )
         )

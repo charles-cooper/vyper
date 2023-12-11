@@ -326,7 +326,7 @@ class Slice(BuiltinFunctionT):
 
         return_type = StringT if isinstance(arg_type, StringT) else BytesT
         if length_literal is None:
-            return return_type(min_length=arg_type.length)
+            return return_type(arg_type.length)
         return return_type(length_literal)
 
     def infer_arg_types(self, node):
@@ -354,11 +354,7 @@ class Slice(BuiltinFunctionT):
             b2,
             start,
         ), length.cache_when_complex("length") as (b3, length):
-            if is_bytes32:
-                src_maxlen = 32
-            else:
-                src_maxlen = src.typ.maxlen
-
+            src_maxlen = 32 if is_bytes32 else src.typ.length
             dst_maxlen = length.value if length.is_literal else src_maxlen
 
             buflen = dst_maxlen
@@ -525,7 +521,7 @@ class Concat(BuiltinFunctionT):
 
         # Maximum length of the output
         dst_maxlen = sum(
-            [arg.typ.maxlen if isinstance(arg.typ, _BytestringT) else arg.typ.m for arg in args]
+            [arg.typ.length if isinstance(arg.typ, _BytestringT) else arg.typ.m for arg in args]
         )
 
         # TODO: try to grab these from semantic analysis
@@ -552,7 +548,7 @@ class Concat(BuiltinFunctionT):
 
             if isinstance(arg.typ, _BytestringT):
                 # Ignore empty strings
-                if arg.typ.maxlen == 0:
+                if arg.typ.length == 0:
                     continue
 
                 with arg.cache_when_complex("arg") as (b1, arg):
@@ -561,7 +557,7 @@ class Concat(BuiltinFunctionT):
                     with get_bytearray_length(arg).cache_when_complex("len") as (b2, arglen):
                         do_copy = [
                             "seq",
-                            copy_bytes(dst_data, argdata, arglen, arg.typ.maxlen),
+                            copy_bytes(dst_data, argdata, arglen, arg.typ.length),
                             ["set", ofst, ["add", ofst, arglen]],
                         ]
                         ret.append(b1.resolve(b2.resolve(do_copy)))
@@ -696,7 +692,7 @@ class Sha256(BuiltinFunctionT):
                 ],
             ],
             typ=BYTES32_T,
-            add_gas_estimate=SHA256_BASE_GAS + sub.typ.maxlen * SHA256_PER_WORD_GAS,
+            add_gas_estimate=SHA256_BASE_GAS + sub.typ.length * SHA256_PER_WORD_GAS,
         )
 
 
@@ -1074,7 +1070,7 @@ class RawCall(BuiltinFunctionT):
             raise
 
         if outsize.value:
-            return_type = BytesT(min_length=outsize.value)
+            return_type = BytesT(outsize.value)
 
             if revert_on_failure:
                 return return_type
@@ -1853,7 +1849,7 @@ class CreateFromBlueprint(_CreateBase):
 
             argbuf = bytes_data_ptr(ctor_args[0])
             argslen = get_bytearray_length(ctor_args[0])
-            bufsz = ctor_args[0].typ.maxlen
+            bufsz = ctor_args[0].typ.length
         else:
             # encode the varargs
             to_encode = ir_tuple_from_args(ctor_args)
@@ -2091,7 +2087,7 @@ class Uint2Str(BuiltinFunctionT):
     @process_inputs
     def build_IR(self, expr, args, kwargs, context):
         return_t = self.fetch_call_return(expr)
-        n_digits = return_t.maxlen
+        n_digits = return_t.length
 
         with args[0].cache_when_complex("val") as (b1, val):
             buf = context.new_internal_variable(return_t)
@@ -2501,11 +2497,8 @@ class ABIDecode(BuiltinFunctionT):
         abi_size_bound = wrapped_typ.abi_type.size_bound()
         abi_min_size = wrapped_typ.abi_type.min_size()
 
-        # Get the size of data
-        input_max_len = data.typ.maxlen
-
         assert abi_min_size <= abi_size_bound, "bad abi type"
-        if input_max_len < abi_size_bound:
+        if data.typ.length < abi_size_bound:
             raise StructureException(
                 (
                     "Mismatch between size of input and size of decoded types. "

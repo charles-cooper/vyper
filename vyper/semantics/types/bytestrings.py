@@ -20,24 +20,19 @@ class _BytestringT(VyperType):
     Attributes
     ----------
     _length : int
-        The maximum allowable length of the data within the type.
-    _min_length: int
-        The minimum length of the data within the type. Used when the type
-        is applied to a literal definition.
+        The allowable length of the data within the type.
     """
 
     # this is a carveout because currently we allow dynamic arrays of
     # bytestrings, but not static arrays of bytestrings
     _as_darray = True
     _as_hashmap_key = True
-    _equality_attrs = ("_length", "_min_length")
+    _equality_attrs = "_length",
     _is_bytestring: bool = True
 
-    def __init__(self, length: int = 0, min_length: int = 0) -> None:
+    def __init__(self, length: int = 0) -> None:
         super().__init__()
-
         self._length = length
-        self._min_length = min_length or length
 
     def __repr__(self):
         return f"{self._id}[{self.length}]"
@@ -47,16 +42,7 @@ class _BytestringT(VyperType):
         """
         Property method used to check the length of a type.
         """
-        if self._length:
-            return self._length
-        return self._min_length
-
-    @property
-    def maxlen(self):
-        """
-        Alias for backwards compatibility.
-        """
-        return self.length
+        return self._length
 
     def validate_literal(self, node: vy_ast.Constant) -> None:
         super().validate_literal(node)
@@ -97,17 +83,16 @@ class _BytestringT(VyperType):
 
         if length is None:
             raise StructureException(
-                f"Cannot declare {cls._id} type without a maximum length, e.g. {cls._id}[5]", node
+                f"Cannot declare {cls._id} type without a length, e.g. {cls._id}[5]", node
             )
 
-        length = length or 0
-        return cls(length, min_length=length)
+        return cls(length)
 
     @classmethod
     def from_literal(cls, node: vy_ast.Constant) -> "_BytestringT":
         if not isinstance(node, cls._valid_literal):
             raise UnexpectedNodeType(f"Not a {cls._id}: {node}")
-        return cls(min_length=len(node.value))
+        return cls(length=len(node.value))
 
 
 class BytesT(_BytestringT):
