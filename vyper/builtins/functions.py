@@ -296,11 +296,6 @@ class Slice(BuiltinFunctionT):
     def fetch_call_return(self, node):
         arg_type, _, _ = self.infer_arg_types(node)
 
-        if isinstance(arg_type, StringT):
-            return_type = StringT()
-        else:
-            return_type = BytesT()
-
         # validate start and length are in bounds
 
         arg = node.args[0]
@@ -329,13 +324,10 @@ class Slice(BuiltinFunctionT):
                 if length_literal is not None and start_literal + length_literal > arg_type.length:
                     raise ArgumentException(f"slice out of bounds for {arg_type}", node)
 
-        # we know the length statically
-        if length_literal is not None:
-            return_type.set_length(length_literal)
-        else:
-            return_type.set_min_length(arg_type.length)
-
-        return return_type
+        return_type = StringT if isinstance(arg_type, StringT) else BytesT
+        if length_literal is None:
+            return return_type(min_length=arg_type.length)
+        return return_type(length_literal)
 
     def infer_arg_types(self, node):
         self._validate_arg_types(node)
@@ -497,12 +489,8 @@ class Concat(BuiltinFunctionT):
         for arg_t in arg_types:
             length += arg_t.length
 
-        if isinstance(arg_types[0], (StringT)):
-            return_type = StringT()
-        else:
-            return_type = BytesT()
-        return_type.set_length(length)
-        return return_type
+        return_type = StringT if isinstance(arg_types[0], StringT) else BytesT
+        return return_type(length)
 
     def infer_arg_types(self, node):
         if len(node.args) < 2:
@@ -1086,8 +1074,7 @@ class RawCall(BuiltinFunctionT):
             raise
 
         if outsize.value:
-            return_type = BytesT()
-            return_type.set_min_length(outsize.value)
+            return_type = BytesT(min_length=outsize.value)
 
             if revert_on_failure:
                 return return_type
@@ -2415,15 +2402,12 @@ class ABIEncode(BuiltinFunctionT):
         else:
             arg_abi_t = ABI_Tuple(arg_abi_types)
 
-        maxlen = arg_abi_t.size_bound()
-
+        max_length = arg_abi_t.size_bound()
         if has_method_id:
             # the output includes 4 bytes for the method_id.
-            maxlen += 4
+            max_length += 4
 
-        ret = BytesT()
-        ret.set_length(maxlen)
-        return ret
+        return BytesT(max_length)
 
     @staticmethod
     def _parse_method_id(method_id_literal):
