@@ -434,14 +434,7 @@ def _optimize(node: IRnode, parent: Optional[IRnode]) -> Tuple[bool, IRnode]:
         argz = list(argz)
 
     value = node.value
-    typ = node.typ
-    location = node.location
-    source_pos = node.source_pos
-    error_msg = node.error_msg
     annotation = node.annotation
-    add_gas_estimate = node.add_gas_estimate
-    is_self_call = node.is_self_call
-    passthrough_metadata = node.passthrough_metadata
 
     changed = False
 
@@ -456,17 +449,7 @@ def _optimize(node: IRnode, parent: Optional[IRnode]) -> Tuple[bool, IRnode]:
             return False, node
 
         ir_builder = [val, *args]
-        ret = IRnode.from_list(
-            ir_builder,
-            typ=typ,
-            location=location,
-            source_pos=source_pos,
-            error_msg=error_msg,
-            annotation=annotation,
-            add_gas_estimate=add_gas_estimate,
-            is_self_call=is_self_call,
-            passthrough_metadata=passthrough_metadata,
-        )
+        ret = IRnode.copy_from_list(ir_builder, node, annotation=annotation)
 
         if should_check_symbols:
             _check_symbols(starting_symbols, ret)
@@ -552,7 +535,7 @@ def _optimize(node: IRnode, parent: Optional[IRnode]) -> Tuple[bool, IRnode]:
         if _evm_int(argz[0]) == 0:
             raise StaticAssertionException(
                 f"assertion found to fail at compile time. (hint: did you mean `raise`?) {node}",
-                source_pos,
+                node.source_pos,
             )
         else:
             changed = True

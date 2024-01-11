@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import re
 from enum import Enum, auto
 from functools import cached_property
@@ -587,6 +588,25 @@ class IRnode:
 
     def __repr__(self):
         return self.repr()
+
+    def __deepcopy__(self, memo):
+        args = [copy.deepcopy(arg) for arg in self.args]
+        return self.copy_from_list([self.value, *args], copy_from=self)
+
+    @classmethod
+    def copy_from_list(cls, xs, copy_from, **override_kwargs):
+        kwargs = dict(
+            typ=copy_from.typ,
+            location=copy_from.location,
+            source_pos=copy_from.source_pos,
+            error_msg=copy_from.error_msg,
+            annotation=copy_from.annotation,
+            add_gas_estimate=copy_from.add_gas_estimate,
+            is_self_call=copy_from.is_self_call,
+            passthrough_metadata=copy_from.passthrough_metadata,
+        )
+        kwargs.update(override_kwargs)
+        return cls.from_list(xs, **kwargs)
 
     @classmethod
     def from_list(
