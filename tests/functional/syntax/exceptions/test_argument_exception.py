@@ -89,6 +89,22 @@ def foo():
     for i: uint256 in range(1, 2, 3, 4):
         pass
     """,
+    # argument exception in a default argument - interface
+    """
+interface Foo:
+    def foo(): nonpayable
+@external
+def bar(f: Foo = Foo()):
+    pass
+    """,
+    # argument exception in a default argument - struct
+    """
+struct Foo:
+    x: uint256
+@external
+def bar(f: Foo = Foo()):
+    pass
+    """,
 ]
 
 
