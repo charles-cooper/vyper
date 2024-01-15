@@ -13,20 +13,10 @@ from vyper.exceptions import (
     CompilerPanic,
     FunctionDeclarationException,
     InvalidType,
-    StateAccessViolation,
     StructureException,
 )
-from vyper.semantics.analysis.base import (
-    FunctionVisibility,
-    Modifiability,
-    StateMutability,
-    StorageSlot,
-)
-from vyper.semantics.analysis.utils import (
-    check_modifiability,
-    get_exact_type_from_node,
-    validate_expected_type,
-)
+from vyper.semantics.analysis.base import FunctionVisibility, StateMutability, StorageSlot
+from vyper.semantics.analysis.utils import get_exact_type_from_node, validate_expected_type
 from vyper.semantics.data_locations import DataLocation
 from vyper.semantics.types.base import KwargSettings, VyperType
 from vyper.semantics.types.primitives import BoolT
@@ -701,9 +691,6 @@ def _parse_args(
             positional_args.append(PositionalArg(argname, type_, ast_source=arg))
         else:
             value = funcdef.args.defaults[i - n_positional_args]
-            if not check_modifiability(value, Modifiability.RUNTIME_CONSTANT):
-                raise StateAccessViolation("Value must be literal or environment variable", value)
-            validate_expected_type(value, type_)
             keyword_args.append(KeywordArg(argname, type_, value, ast_source=arg))
 
         argnames.add(argname)

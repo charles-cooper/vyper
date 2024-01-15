@@ -88,7 +88,9 @@ class BuiltinFunctionT(VyperType):
     _is_terminus = False
 
     # helper function to deal with TYPE_DEFINITIONs
-    def _validate_single(self, arg: vy_ast.VyperNode, expected_type: VyperType) -> None:
+    def _validate_single(
+        self, arg: vy_ast.VyperNode, expected_type: VyperType, modifiability: Modifiability
+    ) -> None:
         # TODO using "TYPE_DEFINITION" is a kludge in derived classes,
         # refactor me.
         if expected_type == "TYPE_DEFINITION":
@@ -97,6 +99,9 @@ class BuiltinFunctionT(VyperType):
             type_from_annotation(arg)
         else:
             validate_expected_type(arg, expected_type)
+            if not check_modifiability(arg, modifiability):
+                # CMC 2024-01-15 TODO: change to StateAccessViolation
+                raise TypeMismatch("Value must be literal", arg)
 
     def _validate_arg_types(self, node: vy_ast.Call) -> None:
         num_args = len(self._inputs)  # the number of args the signature indicates
@@ -109,15 +114,15 @@ class BuiltinFunctionT(VyperType):
         validate_call_args(node, expect_num_args, list(self._kwargs.keys()))
 
         for arg, (_, expected) in zip(node.args, self._inputs):
-            self._validate_single(arg, expected)
+            self._validate_single(arg, expected, Modifiability.MODIFIABLE)
 
         for kwarg in node.keywords:
             kwarg_settings = self._kwargs[kwarg.arg]
-            if kwarg_settings.require_literal and not check_modifiability(
-                kwarg.value, Modifiability.CONSTANT
-            ):
-                raise TypeMismatch("Value must be literal", kwarg.value)
-            self._validate_single(kwarg.value, kwarg_settings.typ)
+
+            modifiability = Modifiability.MODIFIABLE
+            if kwarg_settings.require_literal:
+                modifiability = Modifiability.CONSTANT
+            self._validate_single(kwarg.value, kwarg_settings.typ, modifiability)
 
         # typecheck varargs. we don't have type info from the signature,
         # so ensure that the types of the args can be inferred exactly.

@@ -19,6 +19,7 @@ from vyper.exceptions import (
 from vyper.semantics.analysis.base import Modifiability, VarInfo
 from vyper.semantics.analysis.common import VyperNodeVisitorBase
 from vyper.semantics.analysis.utils import (
+    check_modifiability,
     get_common_types,
     get_exact_type_from_node,
     get_expr_info,
@@ -214,7 +215,11 @@ class FunctionNodeVisitor(VyperNodeVisitorBase):
         # visit default args
         assert self.func.n_keyword_args == len(self.fn_node.args.defaults)
         for kwarg in self.func.keyword_args:
-            self.expr_visitor.visit(kwarg.default_value, kwarg.typ)
+            value = kwarg.default_value
+            self.expr_visitor.visit(value, kwarg.typ)
+            # CMC 2024-01-15 move these check_modifiability checks into expr visitor
+            if not check_modifiability(value, Modifiability.RUNTIME_CONSTANT):
+                raise StateAccessViolation("Value must be literal or environment variable", value)
 
     def visit(self, node):
         super().visit(node)
