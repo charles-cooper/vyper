@@ -90,7 +90,7 @@ class MemoryAllocator:
         # 64 bits   | 64 bits | 128 bits
         # buf_start | buf_end | ptr
         assert ret <= 2**64 - 1
-        return (ret << 196) | ((ret + size) << 128) | ret
+        return (ret << 192) | ((ret + size) << 128) | ret
 
     def _allocate_memory(self, size: int) -> int:
         if size % 32 != 0:
@@ -134,7 +134,7 @@ class MemoryAllocator:
             raise CompilerPanic("Memory misaligment, only multiples of 32 supported.")
 
         pos = ptr & (2**128 - 1)
-        _bufstart = ptr >> 196
+        _bufstart = ptr >> 192
         _bufend = (ptr >> 128) & (2**64 - 1)
         assert pos == _bufstart, ptr
         assert _bufend - _bufstart == size, ptr
