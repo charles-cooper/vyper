@@ -88,7 +88,11 @@ class MemoryAllocator:
         """
     def allocate_memory(self, size: int) -> int:
         ret = self._allocate_memory(size)
-        return ret | ((ret + size) << 128)
+        # 64 bits   | 64 bits | 128 bits
+        # buf_start | buf_end | ptr
+        assert ret <= 2**64 - 1
+        return  (ret << 196) | ((ret + size) << 128) | ret
+
 
     def _allocate_memory(self, size: int) -> int:
         if size % 32 != 0:
@@ -117,7 +121,7 @@ class MemoryAllocator:
         self.size_of_mem = max(self.size_of_mem, self.next_mem)
         return before_value
 
-    def deallocate_memory(self, pos: int, size: int) -> None:
+    def deallocate_memory(self, ptr: int, size: int) -> None:
         """
         De-allocate memory.
 
@@ -131,8 +135,11 @@ class MemoryAllocator:
         if size % 32 != 0:
             raise CompilerPanic("Memory misaligment, only multiples of 32 supported.")
 
-        pos, _bound = pos & (2**128 - 1), pos >> 128
-        assert _bound - pos == size
+        pos = ptr & (2**128 - 1)
+        _bufstart = (ptr >> 128) & (2**64 - 1)
+        _bufend = ptr >> 196
+        assert pos == _bufstart
+        assert _bufend - _bufstart == size
 
         self.deallocated_mem.append(FreeMemory(position=pos, size=size))
         self.deallocated_mem.sort(key=lambda k: k.position)
