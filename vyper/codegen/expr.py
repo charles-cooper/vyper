@@ -37,7 +37,6 @@ from vyper.exceptions import (
     VyperException,
     tag_exceptions,
 )
-from vyper.semantics.analysis.base import VarAttributeInfo
 from vyper.semantics.types import (
     AddressT,
     BoolT,

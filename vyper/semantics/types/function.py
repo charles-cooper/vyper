@@ -21,7 +21,8 @@ from vyper.semantics.analysis.base import (
     Modifiability,
     ModuleInfo,
     StateMutability,
-    VarInfo,
+    VariableRead,
+    VariableWrite,
     VarOffset,
 )
 from vyper.semantics.analysis.utils import (
@@ -119,10 +120,10 @@ class ContractFunctionT(VyperType):
         self.reachable_internal_functions: OrderedSet[ContractFunctionT] = OrderedSet()
 
         # writes to variables from this function
-        self._variable_writes: OrderedSet[VarInfo] = OrderedSet()
+        self._variable_writes: OrderedSet[VariableWrite] = OrderedSet()
 
         # reads of variables from this function
-        self._variable_reads: OrderedSet[VarInfo] = OrderedSet()
+        self._variable_reads: OrderedSet[VariableRead] = OrderedSet()
 
         # list of modules used (accessed state) by this function
         self._used_modules: OrderedSet[ModuleInfo] = OrderedSet()
