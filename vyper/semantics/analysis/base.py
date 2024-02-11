@@ -193,22 +193,10 @@ class VarInfo:
         assert res == (self.modifiability == Modifiability.CONSTANT)
         return res
 
-
-@dataclass(kw_only=True)
-class VarAttributeInfo(VarInfo):
-    attr: str
-    parent: VarInfo
-
-    def __hash__(self):
-        return super().__hash__()
-
-    @classmethod
-    def from_varinfo(cls, varinfo: VarInfo, attr: str, typ: VyperType):
-        location = varinfo.location
-        modifiability = varinfo.modifiability
-        return cls(
-            typ=typ, location=location, modifiability=modifiability, attr=attr, parent=varinfo
-        )
+@dataclass
+class VariableAccess:
+    variable: VarInfo
+    attrs: tuple[str]
 
 
 @dataclass

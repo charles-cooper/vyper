@@ -91,7 +91,8 @@ class _ExprAnalyser:
             # note: Attribute(expr value, identifier attr)
 
             info = self.get_expr_info(node.value, is_callable=is_callable)
-            attribute_chain = info.attribute_chain + [info]
+            attr_info = AttributeInfo(attr, info)
+            attribute_chain = info.attribute_chain + [attr_info]
 
             attr = node.attr
             t = info.typ.get_member(attr, node)
@@ -111,8 +112,7 @@ class _ExprAnalyser:
         # If it's a Subscript, propagate the subscriptable varinfo
         if isinstance(node, vy_ast.Subscript):
             info = self.get_expr_info(node.value)
-            attribute_chain = info.attribute_chain + [info]
-            return info.copy_with_type(t, attribute_chain=attribute_chain)
+            return info.copy_with_type(t)
 
         return ExprInfo(t)
 

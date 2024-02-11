@@ -323,9 +323,7 @@ class Expr:
         # Other variables
 
         # self.x: global attribute
-        if (varinfo := self.expr._expr_info.var_info) is not None and not isinstance(
-            varinfo, VarAttributeInfo
-        ):
+        if (varinfo := self.expr._expr_info.var_info) is not None:
             if varinfo.is_constant:
                 return Expr.parse_value_expr(varinfo.decl_node.value, self.context)
 
