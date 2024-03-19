@@ -2,6 +2,7 @@ import json
 from typing import Callable
 
 import eth.tools.builder.chain as chain
+from eth_tester.exceptions import TransactionFailed
 from eth import constants
 from eth._utils.address import generate_contract_address
 from eth.chains.mainnet import MainnetChain
@@ -90,7 +91,7 @@ class PyEVMEnv:
 
         c = self.evm.state.computation_class.apply_message(self.evm.state, msg, tx_ctx)
         if c.is_error:
-            raise c.error
+            raise TransactionFailed(c.error)
         return c
 
     def get_code(self, address: HexAddress):
@@ -196,7 +197,7 @@ class PyEVMEnv:
         c = self.evm.state.computation_class.apply_create_message(self.evm.state, msg, tx_ctx)
 
         if c.is_error:
-            raise c.error
+            raise TransactionFailed(c.error)
 
         address = to_checksum_address(target_address)
         abi_contract = factory.at(self, address)
