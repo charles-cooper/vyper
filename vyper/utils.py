@@ -103,11 +103,9 @@ class OrderedSet(Generic[_T]):
         if len(sets) == 0:
             raise ValueError("undefined: intersection of no sets")
 
-        ret = sets[0].copy()
-        for e in sets[0]:
-            if any(e not in s for s in sets[1:]):
-                ret.remove(e)
-        return ret
+        ret = set(sets[0])
+        ret = ret.intersection(*(set(s) for s in sets[1:]))
+        return cls(ret)
 
 
 class StringEnum(enum.Enum):
