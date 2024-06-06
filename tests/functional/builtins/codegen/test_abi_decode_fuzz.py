@@ -202,9 +202,10 @@ _settings = dict(
 )
 
 
+@pytest.mark.parametrize("_n", list(range(30)))
 @given(typ=vyper_type())
 @settings(**_settings)
-def test_abi_decode_fuzz(typ, get_contract, tx_failed):
+def test_abi_decode_fuzz(_n, typ, get_contract, tx_failed):
     wrapped_type = calculate_type_for_external_return(typ)
 
     # add max_mutations bytes worth of padding so we don't just get caught
