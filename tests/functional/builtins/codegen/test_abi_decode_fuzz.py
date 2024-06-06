@@ -225,7 +225,7 @@ def run(xs: Bytes[{bound}]) -> {type_str}:
     c = get_contract(code)
 
     @given(data=payload_from(wrapped_type))
-    @settings(max_examples=1000, **_settings)
+    @settings(max_examples=100000, **_settings)
     def _fuzz(data):
         note(f"type: {typ}")
         note(f"abi_t: {wrapped_type.abi_type.selector_name()}")
