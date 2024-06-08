@@ -37,9 +37,9 @@ class Mem2Var(IRPass):
         uses = dfg.get_uses(var)
         if all([inst.opcode == "mload" for inst in uses]):
             return
-        elif all([inst.opcode == "mstore" for inst in uses]):
-            return
-        elif all([inst.opcode in ["mstore", "mload", "return"] for inst in uses]):
+        #elif all([inst.opcode == "mstore" for inst in uses]):
+        #    return
+        elif all(_ok_use(inst) for inst in uses):
             var_name = f"addr{var.name}_{self.var_name_count}"
             self.var_name_count += 1
             for inst in uses:
@@ -50,9 +50,16 @@ class Mem2Var(IRPass):
                 elif inst.opcode == "mload":
                     inst.opcode = "store"
                     inst.operands = [IRVariable(var_name)]
-                elif inst.opcode == "return":
+                elif inst.opcode == "return" or inst.opcode=="store"and inst.output.value=="%ret_ofst":
                     bb = inst.parent
                     idx = bb.instructions.index(inst)
+                    op_ix = 1 if inst.opcode=="return" else 0
+                    val = inst.operands[op_ix]
                     bb.insert_instruction(
-                        IRInstruction("mstore", [IRVariable(var_name), inst.operands[1]]), idx
+                        IRInstruction("mstore", [IRVariable(var_name), val]), idx
                     )
+
+def _ok_use(inst):
+    if inst.opcode in ("mstore", "mload", "return"):
+        return True
+    return inst.opcode == "store" and inst.output.value == "%ret_ofst"
