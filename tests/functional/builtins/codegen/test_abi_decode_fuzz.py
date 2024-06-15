@@ -350,14 +350,14 @@ def payload_copier(get_contract_from_ir):
     return get_contract_from_ir(["deploy", 0, ir, 0])
 
 
-PARALLELISM = 1  # increase on fuzzer box
+PARALLELISM = 30  # increase on fuzzer box
 
 
 # NOTE: this is a heavy test. 100 types * 100 payloads per type can take
 # 3-4minutes on a regular CPU core.
 @pytest.mark.parametrize("_n", list(range(PARALLELISM)))
 @hp.given(typ=vyper_type())
-@hp.settings(max_examples=100, **_settings)
+@hp.settings(max_examples=120, **_settings)
 def test_abi_decode_fuzz(_n, typ, get_contract, tx_failed, payload_copier, env):
     source_fragments, typ = typ
     # import time
@@ -412,7 +412,7 @@ def run3(xs: Bytes[{buffer_bound}], copier: Foo) -> {type_str}:
     c = get_contract(code)
 
     @hp.given(data=payload_from(wrapped_type))
-    @hp.settings(max_examples=100, **_settings)
+    @hp.settings(max_examples=2000, **_settings)
     def _fuzz(data):
         hp.note(f"type: {typ}")
         hp.note(f"abi_t: {wrapped_type.abi_type.selector_name()}")
@@ -451,7 +451,7 @@ def run3(xs: Bytes[{buffer_bound}], copier: Foo) -> {type_str}:
 
 @pytest.mark.parametrize("_n", list(range(PARALLELISM)))
 @hp.given(typ=vyper_type())
-@hp.settings(max_examples=100, **_settings)
+@hp.settings(max_examples=120, **_settings)
 def test_abi_decode_no_wrap_fuzz(_n, typ, get_contract, tx_failed, env):
     source_fragments, typ = typ
     # import time
@@ -484,7 +484,7 @@ def run(xs: Bytes[{buffer_bound}]) -> {type_str}:
             hp.assume(False)
 
     @hp.given(data=payload_from(typ))
-    @hp.settings(max_examples=100, **_settings)
+    @hp.settings(max_examples=2000, **_settings)
     def _fuzz(data):
         hp.note(code)
         hp.note(data.hex())
