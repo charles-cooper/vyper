@@ -915,10 +915,10 @@ def potential_overlap(left, right):
     if len(left.referenced_variables & right.referenced_variables) > 0:
         return True
 
-    if len(left.referenced_variables) > 0 and right.contains_risky_call:
+    if len(left.referenced_variables) > 0 and right.contains_risky_call_rw:
         return True
 
-    if left.contains_risky_call and len(right.referenced_variables) > 0:
+    if left.contains_risky_call_rw and len(right.referenced_variables) > 0:
         return True
 
     return False
@@ -938,7 +938,7 @@ def read_write_overlap(left, right):
     if len(left.referenced_variables & right.variable_writes) > 0:
         return True
 
-    if len(left.referenced_variables) > 0 and right.contains_risky_call:
+    if len(left.referenced_variables) > 0 and right.contains_risky_call_wo:
         return True
 
     return False

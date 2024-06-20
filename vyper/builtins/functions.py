@@ -29,8 +29,8 @@ from vyper.codegen.core import (
     get_type_for_exact_size,
     ir_tuple_from_args,
     make_setter,
-    potential_overlap,
     promote_signed_int,
+    read_write_overlap,
     sar,
     shl,
     shr,
@@ -358,7 +358,7 @@ class Slice(BuiltinFunctionT):
             assert is_bytes32, src
             src = ensure_in_memory(src, context)
 
-        if potential_overlap(src, start) or potential_overlap(src, length):
+        if read_write_overlap(src, start) or read_write_overlap(src, length):
             raise CompilerPanic("risky overlap")
 
         with src.cache_when_complex("src") as (b1, src), start.cache_when_complex("start") as (
@@ -866,7 +866,7 @@ class Extract32(BuiltinFunctionT):
         bytez, index = args
         ret_type = kwargs["output_type"]
 
-        if potential_overlap(bytez, index):
+        if read_write_overlap(bytez, index):
             raise CompilerPanic("risky overlap")
 
         def finalize(ret):
