@@ -8,6 +8,7 @@ from vyper.utils import OrderedSet
 from vyper.venom.analysis.analysis import IRAnalysesCache
 from vyper.venom.analysis.cfg import CFGAnalysis
 from vyper.venom.analysis.dominators import DominatorTreeAnalysis
+from vyper.venom.analysis.dfg import DFGAnalysis
 from vyper.venom.basicblock import (
     IRBasicBlock,
     IRInstruction,
@@ -37,8 +38,9 @@ class FlowWorkItem:
     end: IRBasicBlock
 
 
-WorkListItem = Union[FlowWorkItem, SSAWorkListItem]
-LatticeItem = Union[LatticeEnum, IRLiteral]
+Range = tuple[IRLiteral | LatticeEnum, IRLiteral | LatticeEnum]
+WorkListItem = FlowWorkItem | SSAWorkListItem
+LatticeItem = LatticeEnum | Range | IRLiteral
 Lattice = dict[IRVariable, LatticeItem]
 
 
@@ -66,9 +68,13 @@ class SCCP(IRPass):
         self.work_list: list[WorkListItem] = []
         self.cfg_dirty = False
 
+        self.ignore_insts: set[IRInstruction] = set()
+
     def run_pass(self):
         self.fn = self.function
+        # TODO: doesn't really need dominator tree, just needs dfs_walk
         self.dom = self.analyses_cache.request_analysis(DominatorTreeAnalysis)
+        self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)
         self._compute_uses()
         self._calculate_sccp(self.fn.entry)
         self._propagate_constants()
@@ -139,6 +145,8 @@ class SCCP(IRPass):
         """
         This method handles a SSAWorkListItem.
         """
+        if work_item.inst in self.ignore_insts:
+            return
         if work_item.inst.opcode == "phi":
             self._visit_phi(work_item.inst)
         elif len(self.cfg_in_exec[work_item.inst.parent]) > 0:
@@ -153,6 +161,37 @@ class SCCP(IRPass):
     def _set_lattice(self, op: IROperand, value: LatticeItem):
         assert isinstance(op, IRVariable), "Can't set lattice for non-variable"
         self.lattice[op] = value
+
+    def _set_min_lattice(self, op, value):
+        lat = self.lattice[op]
+        if isinstance(lat, tuple):
+            if isinstance(lat[0], IRLiteral):
+                lat = (max(lat[0], value), lat[1])
+            else:
+                lat = value, lat[1]
+
+            if lat[0] == lat[1]:
+                lat = lat[0]
+        elif lat in (LatticeEnum.BOTTOM, LatticeEnum.TOP):
+            lat = value, lat
+
+        self.lattice[op] = lat
+
+    def _set_max_lattice(self, op, value):
+        lat = self.lattice[op]
+        print("SETMAX", op, lat, value)
+        if isinstance(lat, tuple):
+            if isinstance(lat[1], IRLiteral):
+                lat = (lat[0], min(lat[1], value))
+            else:
+                lat = lat[0], value
+
+            if lat[0] == lat[1]:
+                lat = lat[0]
+        elif lat in (LatticeEnum.BOTTOM, LatticeEnum.TOP):
+            lat = lat, value
+
+        self.lattice[op] = lat
 
     def _eval_from_lattice(self, op: IROperand) -> IRLiteral | LatticeEnum:
         if isinstance(op, IRLiteral):
@@ -279,12 +318,65 @@ class SCCP(IRPass):
             self.uses[var] = OrderedSet()
         return self.uses[var]
 
+    def _propagate_constraint(self, inst, iszero=False):
+        var = inst.output
+        if inst.opcode == "iszero":
+            source = self.dfg.get_producing_instruction(inst.operands[0])
+            self._propagate_constraint(source, iszero=not iszero)
+
+        opcode = inst.opcode
+        if (opcode == "xor" and iszero) or (opcode == "eq" and not iszero):
+            op0, op1 = inst.operands
+            if isinstance(op0, IRVariable) and isinstance(op1, IRLiteral):
+                self._set_lattice(op0, op1)
+            if isinstance(op0, IRLiteral) and isinstance(op1, IRVariable):
+                self._set_lattice(op1, op0)
+
+        if iszero:
+            opcode = opcode.replace("t", "e")
+
+        if inst.opcode in ("lt", "slt", "le", "sle"):
+            op0, op1 = inst.operands
+            if isinstance(op0, IRVariable) and isinstance(op1, IRLiteral):
+                print("ENTER2", inst)
+                val = op1
+                if "t" in opcode:
+                    val = IRLiteral(val.value - 1)
+                self._set_max_lattice(op0, val)
+            if isinstance(op0, IRLiteral) and isinstance(op1, IRVariable):
+                # propagate `op0 < op1`
+                val = op0
+                if "t" in opcode:
+                    val = IRLiteral(val.value - 1)
+                self._set_min_lattice(op1, val)
+
+        if inst.opcode in ("gt", "sgt", "ge", "sge"):
+            op0, op1 = inst.operands
+            if isinstance(op0, IRVariable) and isinstance(op1, IRLiteral):
+                # propagate `op0 > op1`
+                print("ENTER3", inst)
+                val = op1
+                if "t" in opcode:
+                    val = IRLiteral(val.value + 1)
+                self._set_min_lattice(op0, val)
+            if isinstance(op0, IRLiteral) and isinstance(op1, IRVariable):
+                # propagate `op0 > op1`
+                print("ENTER4", inst)
+                val = op0
+                if "t" in opcode:
+                    val = IRLiteral(val.value + 1)
+                self._set_max_lattice(op1, val)
+
+        self._add_ssa_work_items(inst)
+
+
     def _propagate_constants(self):
         """
         This method iterates over the IR and replaces constant values
         with their actual values. It also replaces conditional jumps
         with unconditional jumps if the condition is a constant value.
         """
+        print("ENTER", self.ignore_insts)
         for bb in self.dom.dfs_walk:
             for inst in bb.instructions:
                 self._replace_constants(inst)
@@ -295,6 +387,9 @@ class SCCP(IRPass):
         their actual values. It also updates the instruction opcode in
         case of jumps and asserts as needed.
         """
+        if inst in self.ignore_insts:
+            print("ENTER", inst)
+            return
         if inst.opcode == "jnz":
             lat = self._eval_from_lattice(inst.operands[0])
 
@@ -321,6 +416,12 @@ class SCCP(IRPass):
                     )
 
                 inst.operands = []
+            else:
+                var = inst.operands[0]
+                source = self.dfg.get_producing_instruction(var)
+                if source.opcode in ("iszero", "eq", "lt", "gt", "slt", "sgt"):
+                    self.ignore_insts.add(inst)
+                    self._propagate_constraint(source)
 
         elif inst.opcode == "phi":
             return
