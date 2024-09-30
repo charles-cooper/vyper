@@ -386,6 +386,9 @@ def compile_files(
 
         ret[file_path] = output
 
+    if vyper.utils._profile is not None:  # pragma: nocover
+        vyper.utils._profile.print_stats("time")
+
     return ret
 
 

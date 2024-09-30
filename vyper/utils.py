@@ -516,12 +516,23 @@ def timeit(msg):
     print(f"{msg}: Took {total_time:.4f} seconds")
 
 
+_profile = None
+
+
 @contextlib.contextmanager
-def timer(msg):
-    t0 = time.time()
-    yield
-    t1 = time.time()
-    print(f"{msg} took {t1 - t0}s")
+def profile():
+    from cProfile import Profile
+
+    global _profile
+    if _profile is None:
+        _profile = Profile()
+        _profile.disable()
+
+    try:
+        _profile.enable()
+        yield
+    finally:
+        _profile.disable()
 
 
 def annotate_source_code(
