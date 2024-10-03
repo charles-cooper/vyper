@@ -148,6 +148,10 @@ class CompilerData:
     @cached_property
     def _annotate(self) -> tuple[natspec.NatspecOutput, vy_ast.Module]:
         module = generate_annotated_ast(self.vyper_module, self.input_bundle)
+
+        import pickle
+        pickle.loads(pickle.dumps(module))
+
         nspec = natspec.parse_natspec(module)
         return nspec, module
 
