@@ -1,4 +1,5 @@
 import json
+from tests.unit.ast.nodes.util import deepequals
 
 from vyper import compiler
 from vyper.ast.nodes import NODE_SRC_ATTRIBUTES
@@ -137,7 +138,7 @@ def test() -> int128:
     new_dict = json.loads(out_json)
     new_ast = dict_to_ast(new_dict)
 
-    assert new_ast == original_ast
+    assert deepequals(new_ast, original_ast)
 
 
 # strip source annotations like lineno, we don't care for inspecting

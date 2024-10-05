@@ -3,6 +3,8 @@ import pytest
 from vyper import ast as vy_ast
 from vyper.exceptions import SyntaxException
 
+from tests.unit.ast.nodes.util import deepequals
+
 
 def test_binary_becomes_bytes():
     expected = vy_ast.parse_to_ast(
@@ -18,7 +20,7 @@ def x():
     """
     )
 
-    assert expected == mutated
+    assert deepequals(expected ,mutated)
 
 
 def test_binary_length():

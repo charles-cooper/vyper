@@ -284,6 +284,9 @@ class VyperNode:
         if parent is not None:
             parent._children.append(self)
 
+    def __neq__(self, other):
+        raise Exception()
+
     @property
     def parent(self):
         return self._parent
@@ -334,22 +337,6 @@ class VyperNode:
     def __deepcopy__(self, memo):
         # default implementation of deepcopy is a hotspot
         return pickle.loads(pickle.dumps(self))
-
-    # useful for testing
-    def deepequals(self, other):
-        if not isinstance(other, type(self)):
-            return False
-        if getattr(other, "node_id", None) != getattr(self, "node_id", None):
-            return False
-        for field_name in (i for i in self.get_fields() if i not in VyperNode.__slots__):
-            lhs = getattr(self, field_name, None)
-            rhs = getattr(other, field_name, None)
-            if isinstance(lhs, VyperNode):
-                if not lhs.deeqequals(rhs):
-                    return False
-            elif lhs != rhs:
-                return False
-        return True
 
     def __repr__(self):
         cls = type(self)
