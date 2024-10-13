@@ -1,6 +1,7 @@
 from typing import Iterator, Optional
 
 from vyper.codegen.ir_node import IRnode
+from vyper.exceptions import CodegenPanic
 from vyper.utils import OrderedSet
 from vyper.venom.basicblock import CFG_ALTERING_INSTRUCTIONS, IRBasicBlock, IRLabel, IRVariable
 
@@ -80,6 +81,17 @@ class IRFunction:
         for bb in self.get_basic_blocks():
             if bb.is_terminal:
                 yield bb
+
+    def check_ssa(self):
+        var_defs = {}
+        for bb in self.get_basic_blocks():
+            for inst in bb.instructions:
+                if inst.output is None:
+                    continue
+
+                if inst.output in var_defs:
+                    raise CodegenPanic(f"not SSA!\n{inst}\n\n{var_defs[inst.output]}")
+                var_defs[inst.output] = inst
 
     def get_next_variable(self) -> IRVariable:
         self.last_variable += 1
