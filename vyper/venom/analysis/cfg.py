@@ -1,4 +1,5 @@
 from typing import Iterator
+from functools import cached_property
 
 from vyper.utils import OrderedSet
 from vyper.venom.analysis import IRAnalysis
@@ -34,6 +35,8 @@ class CFGAnalysis(IRAnalysis):
                     bb.add_cfg_out(next_bb)
                     next_bb.add_cfg_in(bb)
 
+        self._reachable = {}
+
         self._compute_dfs_r(self.function.entry)
 
     def _compute_dfs_r(self, bb):
@@ -41,14 +44,23 @@ class CFGAnalysis(IRAnalysis):
             return
         bb.is_reachable = True
 
+        self._reachable[bb] = bb.cfg_out.copy()
+
         for out_bb in bb.cfg_out:
             self._compute_dfs_r(out_bb)
+
+            self._reachable[bb].update(self._reachable[out_bb])
 
         self._dfs.add(bb)
 
     @property
     def dfs_walk(self) -> Iterator[IRBasicBlock]:
         return iter(self._dfs)
+
+    @cached_property
+    def reachable(self) -> dict[IRBasicBlock, OrderedSet[IRBasicBlock]]:
+        return self._reachable
+
 
     def invalidate(self):
         from vyper.venom.analysis import DFGAnalysis, DominatorTreeAnalysis, LivenessAnalysis
