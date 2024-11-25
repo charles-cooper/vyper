@@ -2,7 +2,7 @@ from collections import deque
 
 from vyper.exceptions import CompilerPanic
 from vyper.utils import OrderedSet
-from vyper.venom.analysis import CFGAnalysis, IRAnalysis
+from vyper.venom.analysis import CFGAnalysis, IRAnalysis,SCCAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRVariable
 
 
@@ -15,7 +15,14 @@ class LivenessAnalysis(IRAnalysis):
         cfg = self.analyses_cache.request_analysis(CFGAnalysis)
         self._reset_liveness()
 
-        worklist = deque(cfg.dfs_walk)
+        self.sccs = self.analyses_cache.request_analysis(SCCAnalysis)
+
+        self._calculate_out_vars2()
+
+        for bb in self.functions.get_basic_blocks():
+            self._calculate_liveness(bb)
+
+        return
 
         while len(worklist) > 0:
             changed = False
@@ -33,6 +40,19 @@ class LivenessAnalysis(IRAnalysis):
             bb.out_vars = OrderedSet()
             for inst in bb.instructions:
                 inst.liveness = OrderedSet()
+
+    def _calculate_out_vars2(self ) -> bool:
+        from vyper.venom.analysis import DFGAnalysis
+        dfg = self.analyses_cache.request_analysis(DFGAnalysis)
+
+        for var, uses in dfg._dfg_inputs.items():
+            inst = dfg.get_producing_instruction(var)
+            assert inst is not None
+            bb = inst.parent
+
+            for use in uses:
+                if use.parent != inst.parent or bb in self.sccs._sccs[bb].basicblocks:
+                    bb.out_vars.add(var)
 
     def _calculate_liveness(self, bb: IRBasicBlock) -> bool:
         """
