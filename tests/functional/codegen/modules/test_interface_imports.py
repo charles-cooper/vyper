@@ -67,8 +67,9 @@ flag Foo:
     MOO
     POO
 
-interface IFoo:
-    def foo() -> Foo: nonpayable
+@nonpayable
+def foo() -> Foo:
+    ...
     """
 
     contract = """

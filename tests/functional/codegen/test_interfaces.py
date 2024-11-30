@@ -136,6 +136,9 @@ def test_log_interface_event(make_input_bundle, assert_compile_failed):
     interface_code = """
 event Foo:
     a: uint256
+
+def bar() -> uint256:
+    ...
     """
 
     input_bundle = make_input_bundle({"a.vyi": interface_code})

@@ -458,6 +458,10 @@ def bar():
 def test_event_no_export_implements(make_input_bundle):
     # test events are not exported even if they are in implemented interface
     ifoo = """
+@external
+def foo():
+    ...
+
 event MyEvent:
     pass
     """
@@ -465,12 +469,16 @@ event MyEvent:
 import ifoo
 
 implements: ifoo
+
+@external
+def foo():
+    pass
     """
     input_bundle = make_input_bundle({"ifoo.vyi": ifoo})
     out = compile_code(main, input_bundle=input_bundle, output_formats=["abi"])
-    expected = {"abi": []}
 
-    assert out == expected
+    assert len(out["abi"]) == 1
+    assert out["abi"][0]["name"] == "foo"
 
 
 def test_event_export_interface(make_input_bundle):
