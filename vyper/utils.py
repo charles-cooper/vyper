@@ -25,9 +25,11 @@ class OrderedSet(Generic[_T]):
     functionality as needed.
     """
 
+    __slots__ = ("_data",)
+
     def __init__(self, iterable=None):
         if iterable is None:
-            self._data = dict()
+            self._data = {}
         else:
             self._data = dict.fromkeys(iterable)
 
