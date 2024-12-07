@@ -1,6 +1,6 @@
+from collections import defaultdict
 from typing import Optional
 
-from vyper.utils import OrderedSet
 from vyper.venom.analysis.analysis import IRAnalysesCache, IRAnalysis
 from vyper.venom.analysis.liveness import LivenessAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRVariable
@@ -8,17 +8,17 @@ from vyper.venom.function import IRFunction
 
 
 class DFGAnalysis(IRAnalysis):
-    _dfg_inputs: dict[IRVariable, OrderedSet[IRInstruction]]
+    _dfg_inputs: dict[IRVariable, list[IRInstruction]]
     _dfg_outputs: dict[IRVariable, IRInstruction]
 
     def __init__(self, analyses_cache: IRAnalysesCache, function: IRFunction):
         super().__init__(analyses_cache, function)
-        self._dfg_inputs = dict()
+        self._dfg_inputs = defaultdict(list)
         self._dfg_outputs = dict()
 
     # return uses of a given variable
-    def get_uses(self, op: IRVariable) -> OrderedSet[IRInstruction]:
-        return self._dfg_inputs.get(op, OrderedSet())
+    def get_uses(self, op: IRVariable) -> list[IRInstruction]:
+        return self._dfg_inputs[op]
 
     def get_uses_in_bb(self, op: IRVariable, bb: IRBasicBlock):
         """
@@ -31,12 +31,12 @@ class DFGAnalysis(IRAnalysis):
         return self._dfg_outputs.get(op)
 
     def add_use(self, op: IRVariable, inst: IRInstruction):
-        uses = self._dfg_inputs.setdefault(op, OrderedSet())
-        uses.add(inst)
+        uses = self._dfg_inputs[op]
+        if inst not in uses:
+            uses.append(inst)
 
     def remove_use(self, op: IRVariable, inst: IRInstruction):
-        uses: OrderedSet = self._dfg_inputs.get(op, OrderedSet())
-        uses.remove(inst)
+        self._dfg_inputs[op].remove(inst)
 
     @property
     def outputs(self) -> dict[IRVariable, IRInstruction]:
@@ -55,8 +55,7 @@ class DFGAnalysis(IRAnalysis):
                 res = inst.get_outputs()
 
                 for op in operands:
-                    inputs = self._dfg_inputs.setdefault(op, OrderedSet())
-                    inputs.add(inst)
+                    self.add_use(op, inst)
 
                 for op in res:  # type: ignore
                     assert isinstance(op, IRVariable)
