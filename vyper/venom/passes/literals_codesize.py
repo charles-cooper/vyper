@@ -52,6 +52,9 @@ class ReduceLiteralsCodesize(IRPass):
                 continue
             if not_the_shl_benefit > not_benefit and not_the_shl_benefit > shl_benefit:
                 negated_ix -= 1
+                # sanity check
+                assert (negated >> negated_ix) << negated_ix == negated, negated
+                assert (negated >> negated_ix) & 1 == 1, negated
                 index = bb.instructions.index(inst)
                 var = bb.parent.get_next_variable()
                 new_inst = IRInstruction(
