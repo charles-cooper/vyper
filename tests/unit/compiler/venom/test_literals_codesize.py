@@ -107,10 +107,8 @@ def test_literal_codesize_both(orig_value):
     bb.append_instruction("store", IRLiteral(orig_value))
     bb.append_instruction("stop")
 
-    print(fn)
     ac = IRAnalysesCache(fn)
     ReduceLiteralsCodesize(ac, fn).run_pass()
-    print(fn)
 
     assert bb.instructions[0].opcode == "shl"
     op0, op1 = bb.instructions[0].operands
@@ -132,10 +130,8 @@ def test_literal_codesize_nothing(orig_value):
     bb.append_instruction("store", IRLiteral(orig_value))
     bb.append_instruction("stop")
 
-    print(fn)
     ac = IRAnalysesCache(fn)
     ReduceLiteralsCodesize(ac, fn).run_pass()
-    print(fn)
 
     assert bb.instructions[0].opcode == "store"
     assert bb.instructions[0].operands[0].value == orig_value
