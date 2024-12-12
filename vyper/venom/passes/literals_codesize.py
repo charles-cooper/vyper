@@ -1,6 +1,7 @@
 from vyper.utils import evm_not
-from vyper.venom.basicblock import IRLiteral
+from vyper.venom.basicblock import IRLiteral, IRBasicBlock, IRInstruction
 from vyper.venom.passes.base_pass import IRPass
+from vyper.venom.analysis import DFGAnalysis
 
 # not takes 1 byte1, so it makes sense to use it when we can save at least
 # 1 byte
@@ -12,11 +13,14 @@ SHL_THRESHOLD = 3
 
 
 class ReduceLiteralsCodesize(IRPass):
+    dfg: DFGAnalysis
+
     def run_pass(self):
+        #self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)
         for bb in self.function.get_basic_blocks():
             self._process_bb(bb)
 
-    def _process_bb(self, bb):
+    def _process_bb(self, bb: IRBasicBlock):
         i = 0
         while i < len(bb.instructions):
             inst = bb.instructions[i]
@@ -37,8 +41,24 @@ class ReduceLiteralsCodesize(IRPass):
             binz = bin(val)[2:]
             ix = len(binz) - binz.rfind("1")
             shl_benefit = ix - SHL_THRESHOLD * 8
+            
+            negated = evm_not(val)
+            negated_binz = bin(negated)[2:]
+            negated_ix = len(negated_binz) - negated_binz.rfind("1")
+            not_then_shl_size = (len(hex(negated)) - 2) * 4 - negated_ix + 1 + NOT_THRESHOLD * 8 + SHL_THRESHOLD * 8
+            not_the_shl_benefit = (len(hex(val)) - 2) * 4 - not_then_shl_size
 
-            if not_benefit >= shl_benefit:
+            if not_the_shl_benefit > not_benefit and not_the_shl_benefit > shl_benefit:
+                if not_the_shl_benefit > 0:
+                    negated_ix -= 1
+                    index = bb.instructions.index(inst)
+                    var = bb.parent.get_next_variable()
+                    new_inst = IRInstruction("shl", [IRLiteral(negated >> negated_ix), IRLiteral(negated_ix)], output=var)
+                    bb.insert_instruction(new_inst, index)
+                    inst.opcode = "not"
+                    inst.operands = [var]
+                    continue
+            elif not_benefit >= shl_benefit:
                 # transform things like 0xffff...01 to (not 0xfe)
                 if not_benefit > 0:
                     inst.opcode = "not"
