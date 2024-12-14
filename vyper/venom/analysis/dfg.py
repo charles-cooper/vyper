@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Optional
 
+from vyper.utils import profileit
 from vyper.venom.analysis.analysis import IRAnalysesCache, IRAnalysis
 from vyper.venom.analysis.liveness import LivenessAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRVariable
@@ -43,6 +44,10 @@ class DFGAnalysis(IRAnalysis):
         return self._dfg_outputs
 
     def analyze(self):
+        with profileit():
+            self._analyze()
+
+    def _analyze(self):
         # Build DFG
 
         # %15 = add %13 %14
