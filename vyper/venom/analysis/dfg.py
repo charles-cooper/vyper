@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Optional
 
-from vyper.utils import profileit
+from vyper.utils import profileit, OrderedSet
 from vyper.venom.analysis.analysis import IRAnalysesCache, IRAnalysis
 from vyper.venom.analysis.liveness import LivenessAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRVariable
@@ -14,11 +14,11 @@ class DFGAnalysis(IRAnalysis):
 
     def __init__(self, analyses_cache: IRAnalysesCache, function: IRFunction):
         super().__init__(analyses_cache, function)
-        self._dfg_inputs = defaultdict(list)
+        self._dfg_inputs = defaultdict(OrderedSet)
         self._dfg_outputs = dict()
 
     # return uses of a given variable
-    def get_uses(self, op: IRVariable) -> list[IRInstruction]:
+    def get_uses(self, op: IRVariable) -> OrderedSet[IRInstruction]:
         return self._dfg_inputs[op]
 
     def get_uses_in_bb(self, op: IRVariable, bb: IRBasicBlock):
@@ -32,9 +32,7 @@ class DFGAnalysis(IRAnalysis):
         return self._dfg_outputs.get(op)
 
     def add_use(self, op: IRVariable, inst: IRInstruction):
-        uses = self._dfg_inputs[op]
-        if inst not in uses:
-            uses.append(inst)
+        self._dfg_inputs[op].add(inst)
 
     def remove_use(self, op: IRVariable, inst: IRInstruction):
         self._dfg_inputs[op].remove(inst)
@@ -43,11 +41,8 @@ class DFGAnalysis(IRAnalysis):
     def outputs(self) -> dict[IRVariable, IRInstruction]:
         return self._dfg_outputs
 
+    @profileit()
     def analyze(self):
-        with profileit():
-            self._analyze()
-
-    def _analyze(self):
         # Build DFG
 
         # %15 = add %13 %14
