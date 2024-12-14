@@ -531,6 +531,7 @@ def timeit(msg):  # pragma: nocover
 
 _PROF = None
 
+
 def _dump_profile():
     global _PROF
 
@@ -541,7 +542,8 @@ def _dump_profile():
 
     stats = Stats("stats", stream=sys.stderr)
     stats.sort_stats("time")
-    stats.print_stats()                                                         
+    stats.print_stats()
+
 
 @contextlib.contextmanager
 def profileit():  # pragma: nocover
@@ -549,13 +551,14 @@ def profileit():  # pragma: nocover
     Helper function for local dev use, is not intended to ever be run in
     production build
     """
-    from cProfile import Profile
     import atexit
+    from cProfile import Profile
+
     global _PROF
     if _PROF is None:
-        warnings.warn("profiling code, disable me before pushing!")
+        warnings.warn("profiling code, disable me before pushing!", stacklevel=2)
         _PROF = Profile()
-        _PROF .disable()
+        _PROF.disable()
         atexit.register(_dump_profile)
 
     try:

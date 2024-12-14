@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Optional
 
-from vyper.utils import profileit, OrderedSet
+from vyper.utils import OrderedSet, profileit
 from vyper.venom.analysis.analysis import IRAnalysesCache, IRAnalysis
 from vyper.venom.analysis.liveness import LivenessAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRVariable
