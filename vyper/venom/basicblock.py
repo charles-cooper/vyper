@@ -290,7 +290,7 @@ class IRInstruction:
         """
         return (op for op in self.operands if isinstance(op, IRVariable))
 
-    def get_outputs(self) -> list[IROperand]:
+    def get_outputs(self) -> list[IRVariable]:
         """
         Get the output item for an instruction.
         (Currently all instructions output at most one item, but write
