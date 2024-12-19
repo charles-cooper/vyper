@@ -41,7 +41,6 @@ class DFGAnalysis(IRAnalysis):
     def outputs(self) -> dict[IRVariable, IRInstruction]:
         return self._dfg_outputs
 
-    @profileit()
     def analyze(self):
         # Build DFG
 
