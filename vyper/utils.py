@@ -568,8 +568,6 @@ def profileit():  # pragma: nocover
         _PROF.disable()
 
 
-
-
 def annotate_source_code(
     source_code: str,
     lineno: int,
