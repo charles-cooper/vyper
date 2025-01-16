@@ -158,39 +158,4 @@ def eval_arith(opcode: str, ops: list[IROperand]) -> IRLiteral | None:
     if all(isinstance(op, IRLiteral) for op in ops):
         fn = ARITHMETIC_OPS[opcode]
         return fn(ops)  # type: ignore
-
-    # try algebraic transformations
-    return _algebraic_eval(opcode, ops)
-
-
-def _algebraic_eval(opcode: str, ops: list[IROperand]) -> Optional[IRLiteral]:
-    if opcode in ("mul", "and", "div", "sdiv", "mod", "smod"):
-        if any(lit_eq(op, 0) for op in ops):
-            return IRLiteral(0)
-
-    if opcode in ("mod", "smod") and lit_eq(ops[0], 1):
-        return IRLiteral(0)
-
-    # x - x == x ^ x == 0
-    if opcode in ("xor", "sub") and ops[0] == ops[1]:
-        return IRLiteral(0)
-
-    # variable equality: x == x => 1
-    if opcode == "eq" and ops[0] == ops[1]:
-        return IRLiteral(1)
-
-    # x | 0xff..ff == 0xff..ff
-    if opcode == "or" and any(lit_eq(op, SizeLimits.MAX_UINT256) for op in ops):
-        return IRLiteral(SizeLimits.MAX_UINT256)
-
-    if opcode == "exp":
-        if lit_eq(ops[0], 0):
-            return IRLiteral(1)
-
-        if lit_eq(ops[1], 1):
-            return IRLiteral(1)
-
-    if opcode in ("lt", "gt", "slt", "sgt"):
-        return _comparison_eval(opcode, ops)
-
     return None

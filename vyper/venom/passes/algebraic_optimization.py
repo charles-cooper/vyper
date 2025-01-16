@@ -1,5 +1,5 @@
 from vyper.exceptions import CompilerPanic
-from vyper.utils import int_bounds, int_log2, is_power_of_two, wrap256
+from vyper.utils import SizeLimits, int_bounds, int_log2, is_power_of_two, wrap256
 from vyper.venom.analysis.dfg import DFGAnalysis
 from vyper.venom.analysis.liveness import LivenessAnalysis
 from vyper.venom.basicblock import (
@@ -231,6 +231,12 @@ class AlgebraicOptimizationPass(IRPass):
             if inst.opcode == "xor" and lit_eq(operands[0], -1):
                 self.updater._update(inst, "not", [operands[1]])
                 return
+
+            # x - x == x ^ x == 0
+            if inst.opcode in ("xor", "sub") and operands[0] == operands[1]:
+                self.updater._store(inst, IRLiteral(0))
+                return
+
             return
 
         # TODO rules like:
@@ -238,14 +244,38 @@ class AlgebraicOptimizationPass(IRPass):
         # x | not y => not (not x & y)
 
         # x | 0 -> x
-        if inst.opcode == "or" and lit_eq(operands[0], 0):
-            self.updater._store(inst, operands[1])
-            return
+        if inst.opcode == "or":
+            if lit_eq(operands[0], 0):
+                self.updater._store(inst, operands[1])
+                return
+
+            # x | 0xff..ff == 0xff..ff
+            if any(lit_eq(op, SizeLimits.MAX_UINT256) for op in operands):
+                self.updater._store(inst, IRLiteral(SizeLimits.MAX_UINT256))
+                return
 
         # x & 0xFF..FF -> x
         if inst.opcode == "and" and lit_eq(operands[0], -1):
             self.updater._store(inst, operands[1])
             return
+
+        if inst.opcode in ("mul", "and", "div", "sdiv", "mod", "smod"):
+            if any(lit_eq(op, 0) for op in operands):
+                self.updater._store(inst, IRLiteral(0))
+                return
+
+        if inst.opcode in ("mod", "smod") and lit_eq(operands[0], 1):
+            self.updater._store(inst, IRLiteral(0))
+            return
+
+        if inst.opcode == "exp":
+            if lit_eq(operands[0], 0):
+                self.updater._store(inst, IRLiteral(1))
+                return
+
+            if lit_eq(operands[1], 1):
+                self.updater._store(inst, IRLiteral(1))
+                return
 
         if inst.opcode in {"mul", "div", "sdiv", "mod", "smod"}:
             # x * 1 == x / 1 -> x
@@ -301,6 +331,10 @@ class AlgebraicOptimizationPass(IRPass):
 
         # x == 0 -> iszero x
         if inst.opcode == "eq":
+            if operands[0] == operands[1]:
+                self.updater._store(inst, IRLiteral(1))
+                return
+
             if lit_eq(operands[0], 0):
                 self.updater._update(inst, "iszero", [operands[1]])
                 return
@@ -326,10 +360,31 @@ class AlgebraicOptimizationPass(IRPass):
         assert opcode in COMPARATOR_INSTRUCTIONS  # sanity
         assert isinstance(inst.output, IRVariable)  # help mypy
 
+        # x > x => 0
+        if operands[0] == operands[1]:
+            self.updater._store(inst, IRLiteral(0))
+            return
+
         is_gt = "g" in opcode
         signed = "s" in opcode
 
         lo, hi = int_bounds(bits=256, signed=signed)
+
+        # note: remember order of operands!
+        # text of (gt, [x, y]) is: `y > x`
+        a, b = operands[1], operands[0]
+        if is_gt:
+            # x > hi => False
+            # lo > x => False
+            if lit_eq(a, lo) or lit_eq(b, hi):
+                self.updater._store(inst, IRLiteral(0))
+                return
+        else:
+            # hi < x => False
+            # x < lo => False
+            if lit_eq(a, hi) or lit_eq(b, lo):
+                self.updater._store(inst, IRLiteral(0))
+                return
 
         if not isinstance(operands[0], IRLiteral):
             return

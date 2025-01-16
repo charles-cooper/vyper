@@ -20,7 +20,7 @@ def _sccp_algebraic_runner(pre, post):
     for fn in ctx.functions.values():
         ac = IRAnalysesCache(fn)
         StoreElimination(ac, fn).run_pass()
-        SCCP(ac, fn).run_pass()
+        # SCCP(ac, fn).run_pass()
         AlgebraicOptimizationPass(ac, fn).run_pass()
         SCCP(ac, fn).run_pass()
         StoreElimination(ac, fn).run_pass()
