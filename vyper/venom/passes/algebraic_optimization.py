@@ -453,7 +453,7 @@ class AlgebraicOptimizationPass(IRPass):
             assert inst.output is not None, inst
             assert len(after.operands) == 1, after
             var = self.updater._add_before(after, "iszero", [inst.output])
-            self.updater._update_operands(after, {after.operands[0] : var })
+            self.updater._update_operands(after, {after.operands[0]: var})
         else:
             assert len(after.operands) == 1, after
             self.updater._update(after, "store", after.operands)
