@@ -97,7 +97,7 @@ class Mem2Var(IRPass):
         Otherwise, it is left as is.
         """
         uses = dfg.get_uses(var)
-        if all(inst.opcode == "mstore" for inst in uses):
+        if not all(inst.opcode in ("mstore", "mload") for inst in uses):
             return
 
         alloca_id = alloca_inst.operands[2]
