@@ -228,8 +228,8 @@ _current_func_t = None
 _current_context = None
 
 def _is_word_type(typ):
-    # return typ._is_prim_word
-    return typ.memory_bytes_required == 32
+    return typ._is_prim_word
+    # return typ.memory_bytes_required == 32
 
 # func_t: ContractFunctionT
 def _returns_word(func_t) -> bool:
@@ -685,7 +685,7 @@ def _convert_ir_bb(fn, ir, symbols):
             assert alloca._callsite is not None
             if alloca._id not in _alloca_table:
                 bb = fn.get_basic_block()
-                ptr = bb.append_instruction("alloca", alloca.offset, alloca.size, alloca._id)
+                ptr = bb.append_instruction("calloca", alloca.offset, alloca.size, alloca._id)
                 _alloca_table[alloca._id] = ptr
             ret = _alloca_table[alloca._id]
             # assumption: callocas appear in the same order as the

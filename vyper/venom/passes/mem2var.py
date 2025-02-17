@@ -23,6 +23,8 @@ class Mem2Var(IRPass):
                 self._process_alloca_var(dfg, inst, var)
             elif inst.opcode == "palloca":
                 self._process_palloca_var(dfg, inst, var)
+            elif inst.opcode == "calloca":
+                self._process_calloca_var(dfg, inst, var)
 
         self.analyses_cache.invalidate_analysis(DFGAnalysis)
         self.analyses_cache.invalidate_analysis(LivenessAnalysis)
@@ -79,6 +81,28 @@ class Mem2Var(IRPass):
         palloca_inst.operands = [ofst]
         palloca_inst.output = var
 
+        for inst in uses:
+            if inst.opcode == "mstore":
+                inst.opcode = "store"
+                inst.output = var
+                inst.operands = [inst.operands[0]]
+            elif inst.opcode == "mload":
+                inst.opcode = "store"
+                inst.operands = [var]
+
+    def _process_calloca_var(self, dfg: DFGAnalysis, alloca_inst, var: IRVariable):
+        """
+        Process alloca allocated variable. If it is only used by
+        mstore/mload/return instructions, it is promoted to a stack variable.
+        Otherwise, it is left as is.
+        """
+        uses = dfg.get_uses(var)
+        if all(inst.opcode == "mstore" for inst in uses):
+            return
+
+        alloca_id = alloca_inst.operands[2]
+        var_name = self._mk_varname(var.value, alloca_id.value)
+        var = IRVariable(var_name)
         for inst in uses:
             if inst.opcode == "mstore":
                 inst.opcode = "store"
