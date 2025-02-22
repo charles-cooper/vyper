@@ -255,7 +255,10 @@ def _handle_internal_func(
     # assume that handle_internal_func is called before any calls to
     # this function (i.e., that we are in topsort order)
     index = 0
+    seen_names = set()
     for arg in func_t.arguments:
+        assert arg.name not in seen_names
+        seen_names.add(arg.name)
         var = context.lookup_var(arg.name)
         if not _is_word_type(var.typ):
             continue
