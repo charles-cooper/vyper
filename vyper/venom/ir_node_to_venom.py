@@ -252,15 +252,15 @@ def _handle_internal_func(
 
     fn = fn.ctx.create_function(ir.args[0].args[0].value)
 
+    # assume that handle_internal_func is called before any calls to
+    # this function (i.e., that we are in topsort order)
     index = 0
-    if func_t.return_type is not None and not _returns_word(func_t):
-        index += 1
     for arg in func_t.arguments:
         var = context.lookup_var(arg.name)
         if not _is_word_type(var.typ):
             continue
         venom_arg = IRParameter(
-            var.name, index, var.alloca.offset, var.alloca.size, None, None, None
+            var.name, index, var.alloca.offset, var.alloca.size, var.alloca._id, None, None, None
         )
         fn.args.append(venom_arg)
         index += 1
@@ -280,6 +280,7 @@ def _handle_internal_func(
             # functionality in venom.
             # (note frontend generates alloca IDs starting from 1)
             buf = bb.append_instruction("alloca", IRLiteral(-1), IRLiteral(-1), IRLiteral(0))
+            bb.instructions[-1].annotation = "fake return buffer"
         else:
             # NOTE: must match order of stack args!
             buf = bb.append_instruction("param")
@@ -288,12 +289,11 @@ def _handle_internal_func(
         assert buf is not None  # help mypy
         symbols["return_buffer"] = buf
 
-    for arg in fn.args:
-        ret = bb.append_instruction("param")
-        bb.instructions[-1].annotation = arg.name
-        assert ret is not None  # help mypy
-        symbols[arg.name] = ret
-        arg.func_var = ret
+    for venom_arg in reversed(fn.args):
+        param_var = bb.append_instruction("param")
+        bb.instructions[-1].annotation = venom_arg.name
+        assert param_var is not None  # help mypy
+        venom_arg.func_var = param_var
 
     # return address
     return_pc = bb.append_instruction("param")
@@ -301,11 +301,6 @@ def _handle_internal_func(
     symbols["return_pc"] = return_pc
 
     bb.instructions[-1].annotation = "return_pc"
-
-    for arg in fn.args:
-        var = IRVariable(arg.name)
-        bb.append_instruction("store", IRLiteral(arg.offset), ret=var)  # type: ignore
-        arg.addr_var = var
 
     _convert_ir_bb(fn, ir.args[0].args[2], symbols)
 
@@ -533,28 +528,7 @@ def _convert_ir_bb(fn, ir, symbols):
         # to fix upstream.
         val, ptr = _convert_ir_bb_list(fn, reversed(ir.args), symbols)
 
-        if isinstance(ptr, IRVariable):
-            # TODO: is this bad code?
-            param = fn.get_param_by_name(ptr)
-            if param is not None:
-                return fn.get_basic_block().append_instruction("store", val, ret=param.func_var)
-
-        if isinstance(ptr, IRLabel) and ptr.value.startswith("$palloca"):
-            symbol = symbols.get(ptr.annotation, None)
-            if symbol is not None:
-                return fn.get_basic_block().append_instruction("store", symbol)
-
         return fn.get_basic_block().append_instruction("mstore", val, ptr)
-    elif ir.value == "mload":
-        arg = ir.args[0]
-        ptr = _convert_ir_bb(fn, arg, symbols)
-
-        if isinstance(arg.value, str) and arg.value.startswith("$palloca"):
-            symbol = symbols.get(arg.annotation, None)
-            if symbol is not None:
-                return fn.get_basic_block().append_instruction("store", symbol)
-
-        return fn.get_basic_block().append_instruction("mload", ptr)
     elif ir.value == "ceil32":
         x = ir.args[0]
         expanded = IRnode.from_list(["and", ["add", x, 31], ["not", 31]])
@@ -664,13 +638,20 @@ def _convert_ir_bb(fn, ir, symbols):
 
         elif ir.value.startswith("$palloca"):
             alloca = ir.passthrough_metadata["alloca"]
-            if fn.get_param_at_offset(alloca.offset) is not None:
-                return fn.get_param_at_offset(alloca.offset).addr_var
             if alloca._id not in _alloca_table:
-                ptr = fn.get_basic_block().append_instruction(
-                    "palloca", alloca.offset, alloca.size, alloca._id
-                )
+                if _is_word_type(alloca.typ):
+                    ptr = fn.get_basic_block().append_instruction(
+                        "alloca", alloca.offset, alloca.size, alloca._id
+                    )
+                    val = fn.get_param_by_id(alloca._id).func_var  # get var for the param
+                    # to be optimized out by mem2var
+                    fn.get_basic_block().append_instruction("mstore", val, ptr)
+                else:
+                    ptr = fn.get_basic_block().append_instruction(
+                        "palloca", alloca.offset, alloca.size, alloca._id
+                    )
                 _alloca_table[alloca._id] = ptr
+
             return _alloca_table[alloca._id]
 
         elif ir.value.startswith("$calloca"):
