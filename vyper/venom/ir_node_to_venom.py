@@ -65,6 +65,7 @@ PASS_THROUGH_INSTRUCTIONS = frozenset(
         "gasprice",
         "gaslimit",
         "returndatasize",
+        "mload",
         "iload",
         "istore",
         "dload",
