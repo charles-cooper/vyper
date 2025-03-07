@@ -66,13 +66,18 @@ class SCCP(IRPass):
         self.fn = self.function
         self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)  # type: ignore
         self.analyses_cache.request_analysis(CFGAnalysis)
-        self.cfg_dirty = False
+        self.cfg_dirty = True
 
-        self._calculate_sccp(self.fn.entry)
-        self._propagate_constants()
-        if self.cfg_dirty:
+        while self.cfg_dirty:
+            self.cfg_dirty = False
             self.analyses_cache.force_analysis(CFGAnalysis)
             self.fn.remove_unreachable_blocks()
+            self.dfg = self.analyses_cache.force_analysis(DFGAnalysis)  # type: ignore
+            self.lattice = {}
+            self.work_list = []
+            self._calculate_sccp(self.fn.entry)
+            self._propagate_constants()
+
         self.analyses_cache.invalidate_analysis(DFGAnalysis)
         self.analyses_cache.invalidate_analysis(LivenessAnalysis)
 
