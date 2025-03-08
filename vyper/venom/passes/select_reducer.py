@@ -57,6 +57,6 @@ class SelectReducer(IRPass):
         inv_cond = updater._add_before(phi_inst, "iszero", [cond])
         xor = updater._add_before(phi_inst, "xor", source_vars)
         mul = updater._add_before(phi_inst, "mul", [inv_cond, xor])
-        xor2 = updater._add_before(phi_inst, "xor", [mul, source_vars[0]])
+        xor2 = updater._add_before(phi_inst, "xor", [source_vars[0], mul])
 
         updater._update(phi_inst, "store", [xor2])
