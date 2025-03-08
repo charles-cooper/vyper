@@ -35,6 +35,8 @@ class SelectReducer(IRPass):
             return
 
         ops = [var for _label, var in phi_inst.phi_operands]
+        if len(ops) != 2:
+            return
 
         source_vars: list[IROperand] = []
         for op in ops:
