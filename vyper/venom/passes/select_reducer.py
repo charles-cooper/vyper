@@ -34,6 +34,14 @@ class SelectReducer(IRPass):
         if (jnz := idom.instructions[-1]).opcode != "jnz":
             return
 
+        # heuristic: only apply if we think we can clear an entire bb
+        for label, _var in phi_inst.phi_operands:
+            source_bb = self.function.get_basic_block(label.value)
+            if len(source_bb.instructions) > 2:
+                return
+            if not all(inst.opcode == "store" for inst in source_bb.instructions[:-1]):
+                return
+
         ops = [var for _label, var in phi_inst.phi_operands]
         if len(ops) != 2:
             return
