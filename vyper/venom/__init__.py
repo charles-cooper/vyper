@@ -23,6 +23,7 @@ from vyper.venom.passes import (
     MemMergePass,
     ReduceLiteralsCodesize,
     RemoveUnusedVariablesPass,
+    SelectReducer,
     SimplifyCFGPass,
     StoreElimination,
     StoreExpansionPass,
@@ -56,15 +57,21 @@ def _run_passes(fn: IRFunction, optimize: OptimizationLevel, ac: IRAnalysesCache
     SimplifyCFGPass(ac, fn).run_pass()
     MakeSSA(ac, fn).run_pass()
     # run algebraic opts before mem2var to reduce some pointer arithmetic
-    AlgebraicOptimizationPass(ac, fn).run_pass()
     StoreElimination(ac, fn).run_pass()
+    SelectReducer(ac, fn).run_pass()
+    StoreElimination(ac, fn).run_pass()
+    AlgebraicOptimizationPass(ac, fn).run_pass()
+
     Mem2Var(ac, fn).run_pass()
     MakeSSA(ac, fn).run_pass()
     SCCP(ac, fn).run_pass()
 
     SimplifyCFGPass(ac, fn).run_pass()
     StoreElimination(ac, fn).run_pass()
+    SelectReducer(ac, fn).run_pass()
+    StoreElimination(ac, fn).run_pass()
     AlgebraicOptimizationPass(ac, fn).run_pass()
+
     LoadElimination(ac, fn).run_pass()
     SCCP(ac, fn).run_pass()
     StoreElimination(ac, fn).run_pass()
@@ -80,10 +87,18 @@ def _run_passes(fn: IRFunction, optimize: OptimizationLevel, ac: IRAnalysesCache
     #       without making the code generation more expensive by running
     #       MakeSSA again.
     MakeSSA(ac, fn).run_pass()
+
+    SelectReducer(ac, fn).run_pass()
+    StoreElimination(ac, fn).run_pass()
+    AlgebraicOptimizationPass(ac, fn).run_pass()
+    StoreElimination(ac, fn).run_pass()
+    AlgebraicOptimizationPass(ac, fn).run_pass()
+    StoreElimination(ac, fn).run_pass()
+
     BranchOptimizationPass(ac, fn).run_pass()
 
-    AlgebraicOptimizationPass(ac, fn).run_pass()
     RemoveUnusedVariablesPass(ac, fn).run_pass()
+    SimplifyCFGPass(ac, fn).run_pass()
 
     StoreExpansionPass(ac, fn).run_pass()
 

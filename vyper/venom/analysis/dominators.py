@@ -42,7 +42,7 @@ class DominatorTreeAnalysis(IRAnalysis):
         """
         Check if bb1 dominates bb2.
         """
-        return bb2 in self.dominators[bb1]
+        return bb1 in self.dominators[bb2]
 
     def immediate_dominator(self, bb):
         """
