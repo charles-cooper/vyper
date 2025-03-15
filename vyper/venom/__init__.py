@@ -3,6 +3,7 @@
 
 from typing import Optional
 
+from vyper.evm.opcodes import is_eof_enabled
 from vyper.codegen.ir_node import IRnode
 from vyper.compiler.settings import OptimizationLevel, Settings
 from vyper.exceptions import CompilerPanic
@@ -74,7 +75,8 @@ def _run_passes(fn: IRFunction, optimize: OptimizationLevel, ac: IRAnalysesCache
     SimplifyCFGPass(ac, fn).run_pass()
     MemMergePass(ac, fn).run_pass()
 
-    LowerDloadPass(ac, fn).run_pass()
+    if not is_eof_enabled():
+        LowerDloadPass(ac, fn).run_pass()
     # NOTE: MakeSSA is after algebraic optimization it currently produces
     #       smaller code by adding some redundant phi nodes. This is not a
     #       problem for us, but we need to be aware of it, and should be
@@ -104,7 +106,7 @@ def run_passes_on(ctx: IRContext, optimize: OptimizationLevel) -> None:
     for fn in ctx.functions.values():
         ir_analyses[fn] = IRAnalysesCache(fn)
 
-    _run_global_passes(ctx, optimize, ir_analyses)
+    #_run_global_passes(ctx, optimize, ir_analyses)
 
     ir_analyses = {}
     for fn in ctx.functions.values():

@@ -1368,6 +1368,9 @@ def assembly_to_evm_with_symbol_map(
         elif isinstance(item, list) and isinstance(item[0], DataHeader):
             symbol_map[item[0].label] = pc
             pc += _length_of_data(item)
+        elif item == "JUMPDEST" and is_eof_enabled():
+            # these are omitted in the assembly
+            pass
         else:
             pc += 1
 
@@ -1497,7 +1500,7 @@ def assembly_to_evm_with_symbol_map(
 
         # Generate the final header and replace the placeholder
         header = generateEOFHeader(function_sizes, max_stack_heights)
-        ret = header + ret[len(header) :]
+        ret = bytearray(header + ret[len(header) :])
 
     ret.extend(bytecode_suffix)
 

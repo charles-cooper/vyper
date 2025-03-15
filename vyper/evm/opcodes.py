@@ -16,8 +16,6 @@ EVM_VERSIONS: dict[str, int] = dict((v, i) for i, v in enumerate(_evm_versions))
 
 DEFAULT_EVM_VERSION = "cancun"
 
-_eof_enabled = False
-
 # opcode as hex value
 # number of values removed from stack
 # number of values added to stack
@@ -92,9 +90,10 @@ OPCODES: OpcodeMap = {
     "JUMPDEST": (0x5B, 0, 0, 1),
     "MCOPY": (0x5E, 3, 0, (None, None, None, 3)),
     "PUSH0": (0x5F, 0, 1, 2),
-    "RJUMP": (0x5C, 0, 0, (None, None, None, None, 2)),
-    "RJUMPI": (0x5D, 1, 0, (None, None, None, None, 4)),
-    "RJUMPV": (0x5E, 1, 0, (None, None, None, None, 4)),
+    # TODO: move these
+    "RJUMP": (0xE0, 0, 0, (None, None, None, 2)),
+    "RJUMPI": (0xE1, 1, 0, (None, None, None, 4)),
+    "RJUMPV": (0xE2, 1, 0, (None, None, None, 4)),
     "PUSH1": (0x60, 0, 1, 3),
     "PUSH2": (0x61, 0, 1, 3),
     "PUSH3": (0x62, 0, 1, 3),
@@ -176,9 +175,9 @@ OPCODES: OpcodeMap = {
     "INVALID": (0xFE, 0, 0, 0),
     "DEBUG": (0xA5, 1, 0, 0),
     "BREAKPOINT": (0xA6, 0, 0, 0),
-    "CALLF": (0xB0, 0, 0, (None, None, None, None, 5)),
-    "RETF": (0xB1, 0, 0, (None, None, None, None, 4)),
-    "JUMPF": (0xB2, 0, 0, (None, None, None, None, 4)),
+    "CALLF": (0xE3, 0, 0, (None, None, None, 5)),
+    "RETF": (0xE4, 0, 0, (None, None, None, 4)),
+    "JUMPF": (0xE5, 0, 0, (None, None, None, 4)),
     "TLOAD": (0x5C, 1, 1, (None, None, None, 100)),
     "TSTORE": (0x5D, 2, 0, (None, None, None, 100)),
 }
@@ -306,10 +305,8 @@ def version_check(begin: Optional[str] = None, end: Optional[str] = None) -> boo
     return begin_idx <= active_evm_version <= end_idx
 
 
-def set_eof_enabled(e: bool):
-    global _eof_enabled
-    _eof_enabled = e
-
-
 def is_eof_enabled() -> bool:
-    return _eof_enabled
+    settings = get_global_settings()
+    if settings.experimental_eof is None:
+        return False
+    return settings.experimental_eof

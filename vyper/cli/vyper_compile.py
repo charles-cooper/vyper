@@ -236,6 +236,9 @@ def _parse_args(argv):
     if args.experimental_codegen:
         settings.experimental_codegen = args.experimental_codegen
 
+    if args.experimental_eof:
+        settings.experimental_eof = args.experimental_eof
+
     if args.debug:
         settings.debug = args.debug
 

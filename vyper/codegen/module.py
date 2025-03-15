@@ -3,6 +3,7 @@
 from typing import Any, List
 
 import vyper.ast as vy_ast
+from vyper.evm.opcodes import is_eof_enabled
 from vyper.codegen import core, jumptable_utils
 from vyper.codegen.core import shr
 from vyper.codegen.function_definitions import (
@@ -440,7 +441,7 @@ def generate_ir_for_module(module_t: ModuleT) -> tuple[IRnode, IRnode]:
 
     # TODO: add option to specifically force linear selector section,
     # useful for testing and downstream tooling.
-    if core._opt_none():
+    if core._opt_none() or is_eof_enabled():
         selector_section = _selector_section_linear(external_functions, module_t)
     # dense vs sparse global overhead is amortized after about 4 methods.
     # (--debug will force dense selector table anyway if _opt_codesize is selected.)

@@ -271,6 +271,9 @@ def calculate_max_stack_height(
         pop_size = meta[1]
         push_size = meta[2]
 
+        #print(pc, hex(op), mnemonic, meta, pop_size, push_size, stack_height)
+        #print("(immediate size)", immediate_size(op))
+
         if mnemonic == "CALLF":
             pop_size = 0
             push_size = 1
@@ -295,16 +298,16 @@ def calculate_max_stack_height(
             pc += jump_offset
         elif mnemonic == "RJUMPI":
             jump_offset = int.from_bytes(bytecode[pc + 1 : pc + 3], byteorder="big", signed=True)
-            return max(
-                max_stack_height,
-                calculate_max_stack_height(bytecode, pc + 3, stack_height, stack_heights),
-                calculate_max_stack_height(
-                    bytecode, pc + 3 + jump_offset, stack_height, stack_heights
-                ),
-            )
+            #print("EXPLORING BRANCH A", pc, stack_height)
+            branch_a = calculate_max_stack_height(bytecode, pc + 3, stack_height, stack_heights)
+            #print("EXPLORING BRANCH B", jump_offset, pc, stack_height)
+            branch_b = calculate_max_stack_height(bytecode, pc + 3 + jump_offset, stack_height, stack_heights)
+            return max(max_stack_height, branch_a, branch_b)
         elif mnemonic in TERMINATING_OPCODES:
             return max_stack_height
 
+        #print("OLD PC", pc)
         pc += 1 + immediate_size(op)
+        #print("NEW PC", pc)
 
     return max_stack_height

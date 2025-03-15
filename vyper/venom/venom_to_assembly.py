@@ -1,5 +1,6 @@
 from typing import Any
 
+from vyper.evm.opcodes import is_eof_enabled
 from vyper.exceptions import CompilerPanic, StackTooDeep
 from vyper.ir.compile_ir import (
     PUSH,
@@ -108,6 +109,16 @@ _ONE_TO_ONE_INSTRUCTIONS = frozenset(
 )
 
 _REVERT_POSTAMBLE = ["_sym___revert", "JUMPDEST", *PUSH(0), "DUP1", "REVERT"]
+
+def JUMP():
+    if is_eof_enabled():
+        return "RJUMP"
+    return "JUMP"
+
+def JUMPI():
+    if is_eof_enabled():
+        return "RJUMPI"
+    return "JUMPI"
 
 
 def apply_line_numbers(inst: IRInstruction, asm) -> list[str]:
@@ -485,20 +496,21 @@ class VenomCompiler:
             # jump if not zero
             if_nonzero_label, if_zero_label = inst.get_label_operands()
             assembly.append(_as_asm_symbol(if_nonzero_label))
-            assembly.append("JUMPI")
+            assembly.append(JUMPI())
 
             # make sure the if_zero_label will be optimized out
             # assert if_zero_label == next(iter(inst.parent.cfg_out)).label
 
             assembly.append(_as_asm_symbol(if_zero_label))
-            assembly.append("JUMP")
+            assembly.append(JUMP())
 
         elif opcode == "jmp":
             (target,) = inst.operands
             assert isinstance(target, IRLabel)
             assembly.append(_as_asm_symbol(target))
-            assembly.append("JUMP")
+            assembly.append(JUMP())
         elif opcode == "djmp":
+            assert not is_eof_enabled(), "djmp unsupported"
             assert isinstance(
                 inst.operands[0], IRVariable
             ), f"Expected IRVariable, got {inst.operands[0]}"
@@ -508,22 +520,28 @@ class VenomCompiler:
             assert isinstance(
                 target, IRLabel
             ), f"invoke target must be a label (is ${type(target)} ${target})"
-            assembly.extend(
-                [
-                    f"_sym_label_ret_{self.label_counter}",
-                    _as_asm_symbol(target),
-                    "JUMP",
-                    f"_sym_label_ret_{self.label_counter}",
-                    "JUMPDEST",
-                ]
-            )
-            self.label_counter += 1
+            if is_eof_enabled():
+                assembly.extend([_as_asm_symbol(target), "CALLF"])
+            else:
+                assembly.extend(
+                    [
+                        f"_sym_label_ret_{self.label_counter}",
+                        _as_asm_symbol(target),
+                        "JUMP",
+                        f"_sym_label_ret_{self.label_counter}",
+                        "JUMPDEST",
+                    ]
+                )
+                self.label_counter += 1
         elif opcode == "ret":
-            assembly.append("JUMP")
+            if is_eof_enabled():
+                assembly.append("RETF")
+            else:
+                assembly.append("JUMP")
         elif opcode == "return":
             assembly.append("RETURN")
         elif opcode == "exit":
-            assembly.extend(["_sym__ctor_exit", "JUMP"])
+            assembly.extend(["_sym__ctor_exit", JUMP()])
         elif opcode == "phi":
             pass
         elif opcode == "sha3":
@@ -541,10 +559,10 @@ class VenomCompiler:
                 ]
             )
         elif opcode == "assert":
-            assembly.extend(["ISZERO", "_sym___revert", "JUMPI"])
+            assembly.extend(["ISZERO", "_sym___revert", JUMPI()])
         elif opcode == "assert_unreachable":
             end_symbol = mksymbol("reachable")
-            assembly.extend([end_symbol, "JUMPI", "INVALID", end_symbol, "JUMPDEST"])
+            assembly.extend([end_symbol, JUMPI(), "INVALID", end_symbol, "JUMPDEST"])
         elif opcode == "iload":
             addr = inst.operands[0]
             if isinstance(addr, IRLiteral):
