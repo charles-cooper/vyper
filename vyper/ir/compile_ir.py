@@ -1268,7 +1268,7 @@ def assembly_to_evm_with_symbol_map(
 
     pc = 0
     symbol_map = {}
-    call_offsets = {}
+    function_ids = {}
 
     runtime_code, runtime_code_start, runtime_code_end = None, None, None
 
@@ -1326,7 +1326,7 @@ def assembly_to_evm_with_symbol_map(
                 line_number_map["pc_jump_map"][pc] = "-"
 
             if item == "CALLF":
-                call_offsets[last] = True
+                function_ids[last] = len(function_ids)
         elif item in ("RJUMPI", "JUMPI", "JUMPDEST"):
             line_number_map["pc_jump_map"][pc] = "-"
 
@@ -1437,7 +1437,7 @@ def assembly_to_evm_with_symbol_map(
                 ret.extend(bytes([get_opcode(assembly[i + 1])]))
 
                 if assembly[i + 1] == "CALLF":
-                    function_id = function_breaks[symbol_map[sym]]
+                    function_id = function_ids[sym]
                     ret.extend(bytes(function_id.to_bytes(2, "big", signed=True)))
                 else:
                     pc_post_instruction = instr_offsets[i] + 3
@@ -1500,7 +1500,7 @@ def assembly_to_evm_with_symbol_map(
 
         # Generate the final header and replace the placeholder
         header = generateEOFHeader(function_sizes, max_stack_heights)
-        ret = bytearray(header + ret[len(header) :])
+        ret[:len(header)] = header
 
     ret.extend(bytecode_suffix)
 
