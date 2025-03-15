@@ -711,7 +711,7 @@ Math
 
 .. py:function:: sqrt(d: decimal) -> decimal
 
-    Return the square root of the provided decimal number, using the Babylonian square root algorithm.
+    Return the square root of the provided decimal number, using the Babylonian square root algorithm. The rounding mode is to round down to the nearest epsilon. For instance, ``sqrt(0.9999999998) == 0.9999999998``.
 
     .. code-block:: vyper
 
@@ -1023,7 +1023,7 @@ Utilities
         >>> ExampleContract.foo()
 	0xa9059cbb
 
-.. py:function:: abi_encode(*args, ensure_tuple: bool = True) -> Bytes[<depends on input>]
+.. py:function:: abi_encode(*args, ensure_tuple: bool = True, method_id: Bytes[4] = None) -> Bytes[<depends on input>]
 
     Takes a variable number of args as input, and returns the ABIv2-encoded bytestring. Used for packing arguments to raw_call, EIP712 and other cases where a consistent and efficient serialization method is needed.
     Once this function has seen more use we provisionally plan to put it into the ``ethereum.abi`` namespace.
