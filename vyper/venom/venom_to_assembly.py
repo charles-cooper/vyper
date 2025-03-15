@@ -577,6 +577,10 @@ class VenomCompiler:
             else:
                 assembly.extend(["_mem_deploy_end", "ADD"])
             assembly.append("MSTORE")
+        elif opcode == "dload":
+            assembly.append("DATALOAD")
+        elif opcode == "dloadbytes":
+            assembly.append("DATACOPY")
         elif opcode == "log":
             assembly.extend([f"LOG{log_topic_count}"])
         elif opcode == "nop":

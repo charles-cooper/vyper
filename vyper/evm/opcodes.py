@@ -163,6 +163,10 @@ OPCODES: OpcodeMap = {
     "LOG2": (0xA2, 4, 0, 1125),
     "LOG3": (0xA3, 5, 0, 1500),
     "LOG4": (0xA4, 6, 0, 1875),
+    "DATALOAD": (0xD0, 1, 1, (None, None, None, None, 4)),
+    "DATALOADN": (0xD1, 0, 1, (None, None, None, None, 3)),
+    "DATASIZE": (0xD2, 0, 1, (None, None, None, None, 2)),
+    "DATACOPY": (0xD3, 3, 0, (None, None, None, None, 3)),
     "CREATE": (0xF0, 3, 1, 32000),
     "CALL": (0xF1, 7, 1, 2100),
     "CALLCODE": (0xF2, 7, 1, 2100),
@@ -277,7 +281,7 @@ def immediate_size(op):
     if isinstance(op, int):
         op = get_mnemonic(op)
 
-    if op in ["RJUMP", "RJUMPI", "CALLF"]:
+    if op in ["RJUMP", "RJUMPI", "CALLF", "DATALOADN"]:
         return 2
     elif op[:4] == "PUSH":
         return int(op[4:])
