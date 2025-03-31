@@ -499,7 +499,7 @@ def generate_ir_for_module(module_t: ModuleT) -> tuple[IRnode, IRnode]:
         # note:
         #   mload 32 => msize == 64
         #   mload 33 => msize == 96
-        # assumption in general: (mload X) => msize == ceil32(X + 32)
+        # assumption in general: (itouch X) => msize == ceil32(X + 32)
         # see py-evm extend_memory: after_size = ceil32(start_position + size)
         # TODO: perhaps itouch should touch the desired end position
         # internally, rather than doing the +32 calculation in the frontend.
