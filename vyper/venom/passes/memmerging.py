@@ -421,10 +421,9 @@ class MemMergePass(IRPass):
 
             src_ptr = producer.operands[0]
 
-            inst.opcode = "dloadbytes"
-            inst.operands = [IRLiteral(32), src_ptr, dst_ptr]
+            self.updater.update(inst, "dloadbytes", [IRLiteral(32), src_ptr, dst_ptr])
 
-            producer.make_nop()
+            self.updater.nop(producer)
 
 
 def _volatile_memory(inst):
