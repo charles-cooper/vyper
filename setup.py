@@ -22,6 +22,7 @@ extras_require = {
         "setuptools",
         "hexbytes>=1.2",
         "pyrevm>=0.3.2",
+        "PyYAML>=6.0,<7.0",
     ],
     "lint": [
         "black==23.12.0",

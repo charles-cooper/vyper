@@ -1,4 +1,5 @@
 import copy
+from .vyper_test_spec import VyperFile
 from contextlib import contextmanager
 from random import Random
 from typing import Generator
@@ -392,3 +393,11 @@ def pytest_runtest_call(item) -> Generator:
             yield
     else:
         yield
+
+def pytest_pycollect_makemodule(module_path, parent):
+    if module_path.suffix == ".vy":
+        return None
+
+def pytest_collect_file(parent, file_path):
+    if file_path.suffix == ".vy" and file_path.stem.startswith("test"):
+        return VyperFile.from_parent(parent=parent, path=file_path)
