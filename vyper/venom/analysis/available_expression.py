@@ -135,7 +135,15 @@ class _Expression:
         if self.opcode == "store":
             assert len(self.operands) == 1, "wrong store"
             return repr(self.operands[0])
-        res = self.opcode + "("
+        res = ""
+
+        res += f"H({hash(self)})"
+
+        gs = [g for g in self.effect_generation if g is not None]
+        if gs:
+            res += "GEN(" + ",".join(map(str, gs)) + ") "
+
+        res += self.opcode + "("
         res += ",".join(repr(op) for op in self.operands)
         res += ")"
         return res
@@ -376,10 +384,17 @@ class CSEAnalysis(IRAnalysis):
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
 
-            expr = self._get_expression(inst, generation, available_exprs)
-            if inst == available_exprs.get_source_instruction(expr):
-                # bump the generation, unless the instruction is substitutable
-                generation = _bump_generation(generation, get_write_effects(inst.opcode, ignore_msize))
+            expr = self._mk_expr(inst, generation, available_exprs)
+
+            self._update_expression(inst, expr)
+
+            replaceable_inst = available_exprs.get_source_instruction(expr)
+            if replaceable_inst is not None and replaceable_inst != inst:
+                # we found a replaceable instruction, don't bump generation
+                pass
+            else:
+                # we only bump generation if the instruction was not replaceable
+                generation = _bump_generation(generation, get_write_effects(inst.opcode, self.ignore_msize))
 
             # nonidempotent instruction effect other instructions
             # but since it cannot be substituted it does not have
@@ -416,25 +431,9 @@ class CSEAnalysis(IRAnalysis):
         if inst.opcode == "store":
             return self._get_operand(inst.operands[0], generation, available_exprs)
 
-        if inst in self.inst_to_expr:
-            # TODO:
-            # e = self.inst_to_expr[inst]
-            # src = available_exprs.get_source_instruction(expr)
-            # if src is None:
-            #     # return the original instruction
-            #     return e
-            # return self.inst_to_expr[src]
+        return self._mk_expr(inst, generation, available_exprs)
 
-            e = self.inst_to_expr[inst]
-            same_insts = available_exprs.exprs.get(e, [])
-            if inst in same_insts:
-                return self.inst_to_expr[same_insts[0]]
-            return e
-
-        assert inst.opcode in UNINTERESTING_OPCODES
-        return self._get_expression(inst, generation, available_exprs)
-
-    def _get_expression(
+    def _mk_expr(
         self, inst: IRInstruction, generation: tuple, available_exprs: _AvailableExpression
     ) -> _Expression:
         # create expression
@@ -443,15 +442,17 @@ class CSEAnalysis(IRAnalysis):
         ]
         expr = _Expression.create(inst.opcode, operands, generation, inst.parent, self.ignore_msize)
 
-        src_inst = available_exprs.get_source_instruction(expr)
-        if src_inst is not None:
-            same_expr = self.inst_to_expr[src_inst]
-            if same_expr is not None:
-                self.inst_to_expr[inst] = same_expr
-                return same_expr
+        return self._get_available_expression(expr, available_exprs) or expr
 
+    def _get_available_expression(self, expr: _Expression, available_exprs: _AvailableExpression) -> _Expression:
+        src_inst = available_exprs.get_source_instruction(expr)
+        if src_inst is None:
+            return None
+
+        return self.inst_to_expr[src_inst]
+
+    def _update_expression(self, inst, expr):
         self.inst_to_expr[inst] = expr
-        return expr
 
     # todo: rename to `get_common_subexpression`?
     def get_expression(self, inst: IRInstruction) -> tuple[_Expression, IRInstruction]:
@@ -460,14 +461,12 @@ class CSEAnalysis(IRAnalysis):
 
         expr = self.inst_to_expr.get(inst)
         if expr is None:
-            # expr = self._get_operand(inst.output)
-            expr = self._get_expression(inst, generation, available_exprs)
+            expr = self._mk_expr(inst, generation, available_exprs)
 
         src = available_exprs.get_source_instruction(expr)
         if src is None:
             # return the original instruction
             src = inst
+        else:
 
         return (expr, src)
-
-
