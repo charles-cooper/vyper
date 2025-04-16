@@ -439,7 +439,6 @@ class CSEAnalysis(IRAnalysis):
 
     # todo: rename to `get_common_subexpression`?
     def get_expression(self, inst: IRInstruction) -> tuple[_Expression, IRInstruction]:
-        # available_exprs is *always* None
         available_exprs = self.bb_ins[inst.parent]
         generation = self.inst_to_generation[inst]
 
