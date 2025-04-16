@@ -89,6 +89,8 @@ class _Expression:
     @classmethod
     def create(cls, opcode, operands, generation, bb, ignore_msize):
         read_effects = get_read_effects(opcode, ignore_msize)
+        write_effects = get_write_effects(opcode, ignore_msize)
+        op_effects = read_effects | write_effects
 
         # we represent the generation with `None` for the effects
         # that are not read by this Expression.
@@ -96,7 +98,7 @@ class _Expression:
         read_generation = tuple()
         for g_i, eff in zip(generation, effects.Effects):
             t = g_i
-            if not (read_effects & eff):
+            if not (op_effects & eff):
                 t = None
             read_generation += t,
 
