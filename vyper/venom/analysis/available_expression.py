@@ -280,6 +280,8 @@ class _AvailableExpression:
 def _list_intersection(xs: list, ys: list):
     return [x for x in xs if x in ys]
 
+NULL_GENERATION = tuple(0 for _ in effects.Effects)
+
 def _bump_generation(generation: tuple[int, ...], write_effect: effects.Effects):
 
     # TODO: make this readable
@@ -323,8 +325,6 @@ class CSEAnalysis(IRAnalysis):
 
     #@profileit()
     def analyze(self):
-        self._compute_generations()
-
         worklist = deque()
         worklist.append(self.function.entry)
         while len(worklist) > 0:
@@ -355,17 +355,6 @@ class CSEAnalysis(IRAnalysis):
     def copy2(self, x):
         return x.copy()
 
-    def _compute_generations(self):
-        self.inst_to_generation = dict()
-
-        for bb in self.function.get_basic_blocks():
-            generation = tuple(0 for _ in iter(effects.Effects))
-
-            for inst in bb.instructions:
-                self.inst_to_generation[inst] = generation
-                write_effects = get_write_effects(inst.opcode, self.ignore_msize)
-                generation = _bump_generation(generation, write_effects)
-
     def _handle_bb(self, bb: IRBasicBlock) -> bool:
         available_exprs = _AvailableExpression.lattice_meet(
             bb,
@@ -380,13 +369,18 @@ class CSEAnalysis(IRAnalysis):
 
         change = False
 
+        generation = NULL_GENERATION
 
         for inst in bb.instructions:
+            self.inst_to_generation[inst] = generation
+
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
 
-            generation = self.inst_to_generation[inst]
             expr = self._get_expression(inst, generation, available_exprs)
+            if inst == available_exprs.get_source_instruction(expr):
+                # bump the generation, unless the instruction is substitutable
+                generation = _bump_generation(generation, get_write_effects(inst.opcode, ignore_msize))
 
             # nonidempotent instruction effect other instructions
             # but since it cannot be substituted it does not have
