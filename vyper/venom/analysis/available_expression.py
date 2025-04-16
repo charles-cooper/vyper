@@ -122,7 +122,7 @@ class _Expression:
         # be commutative and in that case the order of the
         # operands would not matter (so this is needed)
         # for correct implementation of hash (x == x => hash(x) == hash(y))
-        return hash((self.opcode, tuple(sorted(hash(op) for op in self.operands))))
+        return hash((self.opcode, self.effect_generation, tuple(sorted(hash(op) for op in self.operands))))
 
     def __hash__(self) -> int:
         return self._cached_hash
