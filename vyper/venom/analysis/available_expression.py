@@ -213,8 +213,9 @@ class _AvailableExpression:
 
     def __repr__(self) -> str:
         res = "available expr\n"
-        for key, val in self.exprs.items():
-            res += f"\t{key}: {val}\n"
+        for key, insts in self.exprs.items():
+            inst_strs = [inst.str_short() for inst in insts]
+            res += f"\t{key}: {inst_strs}\n"
         return res
 
     def add(self, expr: _Expression, src_inst: IRInstruction):
