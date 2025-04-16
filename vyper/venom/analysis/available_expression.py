@@ -428,6 +428,14 @@ class CSEAnalysis(IRAnalysis):
             return self._get_operand(inst.operands[0], generation, available_exprs)
 
         if inst in self.inst_to_expr:
+            # TODO:
+            # e = self.inst_to_expr[inst]
+            # src = available_exprs.get_source_instruction(expr)
+            # if src is None:
+            #     # return the original instruction
+            #     return e
+            # return self.inst_to_expr[src]
+
             e = self.inst_to_expr[inst]
             same_insts = available_exprs.exprs.get(e, [])
             if inst in same_insts:
