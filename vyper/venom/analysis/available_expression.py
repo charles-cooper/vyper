@@ -1,4 +1,5 @@
 from __future__ import annotations
+from vyper.utils import profileit, cumtimeit
 
 from collections import deque
 from dataclasses import dataclass
@@ -54,14 +55,56 @@ UNINTERESTING_OPCODES = frozenset(
     ]
 )
 
+def get_read_effects(opcode, ignore_msize):
+    effs = effects.reads.get(opcode, effects.EMPTY)
 
-@dataclass
+    if ignore_msize:
+        effs &= ~effects.MSIZE
+
+    return effs
+
+def get_write_effects(opcode, ignore_msize):
+    effs = effects.writes.get(opcode, effects.EMPTY)
+
+    if ignore_msize:
+        effs &= ~effects.MSIZE
+
+    return effs
+
+
+@dataclass(frozen=True)
+# expression is like the nested representation of an instruction.
+# note that Expression can include no-output instructions
 class _Expression:
     opcode: str
     # the child is either expression of operand since
     # there are possibilities for cycles
     operands: list[IROperand | _Expression]
-    cache_hash: int | None = None
+
+    effect_generation: tuple[Optional[effects.Effect], ...]
+
+    # pointer to the basic block that this Expression is valid in
+    bb: IRBasicBlock
+
+    @classmethod
+    def create(cls, opcode, operands, generation, bb, ignore_msize):
+        read_effects = get_read_effects(opcode, ignore_msize)
+
+        # we represent the generation with `None` for the effects
+        # that are not read by this Expression.
+        assert len(generation) == len(effects.Effects), (opcode, generation)
+        read_generation = tuple()
+        for g_i, eff in zip(generation, effects.Effects):
+            t = g_i
+            if not (read_effects & eff):
+                t = None
+            read_generation += t,
+
+        return cls(opcode, operands, read_generation, bb)
+
+    def with_fresh_generation(self, bb: IRBasicBlock):
+        fresh_generation = tuple(0 if g_i else None for g_i in self.effect_generation)
+        return self.__class__(self.opcode, self.operands, fresh_generation, bb)
 
     # equality for lattices only based on original instruction
     def __eq__(self, other) -> bool:
@@ -69,16 +112,18 @@ class _Expression:
             return False
         return self.same(other)
 
+    @cached_property
+    # Unfortunately the hash has been the performance
+    # bottle neck in some cases so I cached the value
+    def _cached_hash(self):
+        # the reason for the sort is that some opcodes could
+        # be commutative and in that case the order of the
+        # operands would not matter (so this is needed)
+        # for correct implementation of hash (x == x => hash(x) == hash(y))
+        return hash((self.opcode, tuple(sorted(hash(op) for op in self.operands))))
+
     def __hash__(self) -> int:
-        # Unfortunately the hash has been the performance
-        # bottle neck in some cases so I cached the value
-        if self.cache_hash is None:
-            # the reason for the sort is that some opcodes could
-            # be commutative and in that case the order of the
-            # operands would not matter (so this is needed)
-            # for correct implementation of hash (x == x => hash(x) == hash(y))
-            self.cache_hash = hash((self.opcode, tuple(sorted(hash(op) for op in self.operands))))
-        return self.cache_hash
+        return self._cached_hash
 
     # Full equality for expressions based on opcode and operands
     def same(self, other) -> bool:
@@ -104,16 +149,10 @@ class _Expression:
         return max_depth + 1
 
     def get_reads(self, ignore_msize) -> Effects:
-        tmp_reads = effects.reads.get(self.opcode, effects.EMPTY)
-        if ignore_msize:
-            tmp_reads &= ~Effects.MSIZE
-        return tmp_reads
+        return get_read_effects(self.opcode, ignore_msize)
 
     def get_writes(self, ignore_msize) -> Effects:
-        tmp_reads = effects.writes.get(self.opcode, effects.EMPTY)
-        if ignore_msize:
-            tmp_reads &= ~Effects.MSIZE
-        return tmp_reads
+        return get_write_effects(self.opcode, ignore_msize)
 
     @property
     def is_commutative(self) -> bool:
@@ -123,6 +162,7 @@ class _Expression:
 def same(a: IROperand | _Expression, b: IROperand | _Expression) -> bool:
     if isinstance(a, IROperand) and isinstance(b, IROperand):
         return a.value == b.value
+
     if not isinstance(a, _Expression) or not isinstance(b, _Expression):
         return False
 
@@ -130,6 +170,13 @@ def same(a: IROperand | _Expression, b: IROperand | _Expression) -> bool:
         return True
 
     if a.opcode != b.opcode:
+        return False
+
+    # due to lattice_meet, we never call same() on Expressions generated in
+    # different basic blocks
+    assert a.bb == b.bb
+
+    if a.effect_generation != b.effect_generation:
         return False
 
     # Early return special case for commutative instructions
@@ -177,7 +224,7 @@ class _AvailableExpression:
             self.exprs[expr] = []
         self.exprs[expr].append(src_inst)
 
-    def remove_effect(self, effect: Effects, ignore_msize):
+    def _remove_effect(self, effect: Effects, ignore_msize):
         if effect == effects.EMPTY:
             return
         to_remove = set()
@@ -191,7 +238,7 @@ class _AvailableExpression:
         for expr in to_remove:
             del self.exprs[expr]
 
-    def get_source(self, expr: _Expression) -> IRInstruction | None:
+    def get_source_instruction(self, expr: _Expression) -> IRInstruction | None:
         """
         Get source instruction of expression if currently available
         """
@@ -201,6 +248,16 @@ class _AvailableExpression:
             return tmp[0]
         return None
 
+    def output_expressions(self, generation) -> _AvailableExpression:
+        res = _AvailableExpression()
+
+        for k, v in self.exprs.items():
+            if not compatible_generation(k.effect_generation, generation):
+                continue
+            res.exprs[k] = v
+
+        return res
+
     def copy(self) -> _AvailableExpression:
         res = _AvailableExpression()
         for k, v in self.exprs.items():
@@ -208,31 +265,58 @@ class _AvailableExpression:
         return res
 
     @staticmethod
-    def lattice_meet(lattices: list[_AvailableExpression]):
+    def lattice_meet(bb: IRBasicBlock, lattices: list[_AvailableExpression]):
         if len(lattices) == 0:
             return _AvailableExpression()
-        res = lattices[0].copy()
-        for item in lattices[1:]:
-            tmp = res
-            res = _AvailableExpression()
-            for expr, insts in item.exprs.items():
-                if expr not in tmp.exprs:
+
+        # construct starting lattice
+        res = _AvailableExpression()
+        for expr, v in lattices[0].exprs.items():
+            new_expr = expr.with_fresh_generation(bb)
+            res.exprs[new_expr] = v.copy()
+
+        for lattice in lattices[1:]:
+            for expr, insts in lattice.exprs.items():
+                expr = expr.with_fresh_generation(bb)
+
+                if expr not in res.exprs:
                     continue
-                new_insts = []
-                for i in tmp.exprs[expr]:
-                    if i in insts:
-                        new_insts.append(i)
+
+                new_insts = _list_intersection(insts, res.exprs[expr])
+
+                # no common instruction which we can use
+                # (TODO: insert a phi instruction instead)
                 if len(new_insts) == 0:
-                    continue
-                res.exprs[expr] = new_insts
+                    del res.exprs[expr]
+
         return res
+
+def _list_intersection(xs: list, ys: list):
+    return [x for x in xs if x in ys]
+
+def _bump_generation(generation: tuple[int, ...], write_effect: effects.Effects):
+
+    # TODO: make this readable
+    assert len(generation) == len(effects.Effects)
+    return tuple(g + (1 if (write_effect & eff) else 0) for (g, eff) in zip(generation, effects.Effects))
+
+
+def compatible_generation(generation: tuple[int, ...], to_compare: tuple[Optional[int], ...]):
+    for lhs, rhs in zip(generation, to_compare):
+        if lhs != rhs and rhs is not None:
+            return False
+
+    return True
 
 
 class CSEAnalysis(IRAnalysis):
     inst_to_expr: dict[IRInstruction, _Expression]
     dfg: DFGAnalysis
-    inst_to_available: dict[IRInstruction, _AvailableExpression]
+
+    # cache entry available expression for bb
     bb_ins: dict[IRBasicBlock, _AvailableExpression]
+
+    # for merging at lattice join point
     bb_outs: dict[IRBasicBlock, _AvailableExpression]
 
     ignore_msize: bool
@@ -245,19 +329,27 @@ class CSEAnalysis(IRAnalysis):
         self.dfg = dfg
 
         self.inst_to_expr = dict()
-        self.inst_to_available = dict()
+        self.inst_to_generation = dict()
         self.bb_ins = dict()
         self.bb_outs = dict()
 
         self.ignore_msize = not self._contains_msize()
 
+    #@profileit()
     def analyze(self):
+        self._compute_generations()
+
         worklist = deque()
         worklist.append(self.function.entry)
         while len(worklist) > 0:
             bb: IRBasicBlock = worklist.popleft()
             if self._handle_bb(bb):
                 worklist.extend(bb.cfg_out)
+
+    def get_from_same_bb(self, inst: IRInstruction, expr: _Expression) -> list[IRInstruction]:
+        available_exprs = self.bb_ins[inst.parent]
+        res = available_exprs.exprs[expr]
+        return [i for i in res if i != inst and i.parent == inst.parent]
 
     # msize effect should be only necessery
     # to be handled when there is a possibility
@@ -270,27 +362,48 @@ class CSEAnalysis(IRAnalysis):
                     return True
         return False
 
+    def copy1(self, x):
+        # profiler trick, TODO remove me
+        return x.copy()
+
+    def copy2(self, x):
+        return x.copy()
+
+    def _compute_generations(self):
+        self.inst_to_generation = dict()
+
+        for bb in self.function.get_basic_blocks():
+            generation = tuple(0 for _ in iter(effects.Effects))
+
+            for inst in bb.instructions:
+                self.inst_to_generation[inst] = generation
+                write_effects = get_write_effects(inst.opcode, self.ignore_msize)
+                generation = _bump_generation(generation, write_effects)
+
     def _handle_bb(self, bb: IRBasicBlock) -> bool:
         available_expr = _AvailableExpression.lattice_meet(
-            [self.bb_outs.get(pred, _AvailableExpression()) for pred in bb.cfg_in]
+            bb,
+            [self.bb_outs.get(pred, _AvailableExpression()) for pred in bb.cfg_in],
         )
 
         if bb in self.bb_ins and self.bb_ins[bb] == available_expr:
+            # no change
             return False
 
-        self.bb_ins[bb] = available_expr.copy()
+        self.bb_ins[bb] = self.copy1(available_expr)
 
         change = False
+
+
         for inst in bb.instructions:
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
 
-            if inst not in self.inst_to_available or available_expr != self.inst_to_available[inst]:
-                self.inst_to_available[inst] = available_expr.copy()
+            #if inst not in self.inst_to_available or available_expr != self.inst_to_available[inst]:
+            #    self.inst_to_available[inst] = self.copy2(available_expr)
 
-            expr = self._get_expression(inst, available_expr)
-            write_effects = expr.get_writes(self.ignore_msize)
-            available_expr.remove_effect(write_effects, self.ignore_msize)
+            generation = self.inst_to_generation[inst]
+            expr = self._get_expression(inst, generation, available_expr)
 
             # nonidempotent instruction effect other instructions
             # but since it cannot be substituted it does not have
@@ -298,70 +411,74 @@ class CSEAnalysis(IRAnalysis):
             if inst.opcode in NONIDEMPOTENT_INSTRUCTIONS:
                 continue
 
+            # read effects do not overlap write effects
             expr_effects = expr.get_writes(self.ignore_msize) & expr.get_reads(self.ignore_msize)
             if expr_effects == effects.EMPTY:
                 available_expr.add(expr, inst)
 
         if bb not in self.bb_outs or available_expr != self.bb_outs[bb]:
-            self.bb_outs[bb] = available_expr
+            last_generation = self.inst_to_generation[bb.instructions[-1]]
+            self.bb_outs[bb] = available_expr.output_expressions(last_generation)
             # change is only necessery when the output of the
             # basic block is changed (otherwise it wont affect rest)
             change |= True
 
         return change
 
+    # promote operand to expr if we can
     def _get_operand(
-        self, op: IROperand, available_exprs: _AvailableExpression
+        self, op: IROperand, generation: tuple, available_exprs: _AvailableExpression
     ) -> IROperand | _Expression:
         if not isinstance(op, IRVariable):
             return op
         inst = self.dfg.get_producing_instruction(op)
         assert inst is not None, op
-        # the phi condition is here because it is only way to
-        # create dataflow loop
+        # phis can create dataflow loops (which would be infinite depth
+        # expressions) so we ignore them for now.
         if inst.opcode == "phi":
             return op
+
         if inst.opcode == "store":
-            return self._get_operand(inst.operands[0], available_exprs)
+            return self._get_operand(inst.operands[0], generation, available_exprs)
+
         if inst in self.inst_to_expr:
             e = self.inst_to_expr[inst]
             same_insts = available_exprs.exprs.get(e, [])
             if inst in same_insts:
                 return self.inst_to_expr[same_insts[0]]
             return e
+
         assert inst.opcode in UNINTERESTING_OPCODES
-        return self._get_expression(inst, available_exprs)
+        return self._get_expression(inst, generation, available_exprs)
 
-    def get_expression(
-        self, inst: IRInstruction, available_exprs: _AvailableExpression | None = None
-    ) -> tuple[_Expression, IRInstruction]:
-        if available_exprs is None:
-            available_exprs = self.inst_to_available.get(inst, _AvailableExpression())
+    # todo: rename to `get_common_subexpression`?
+    def get_expression(self, inst: IRInstruction) -> tuple[_Expression, IRInstruction]:
+        # available_exprs is *always* None
+        available_exprs = self.bb_ins[inst.parent]
+        generation = self.inst_to_generation[inst]
 
-        assert available_exprs is not None  # help mypy
         expr = self.inst_to_expr.get(inst)
         if expr is None:
-            expr = self._get_expression(inst, available_exprs)
-        src = available_exprs.get_source(expr)
+            # expr = self._get_operand(inst.output)
+            expr = self._get_expression(inst, generation, available_exprs)
+
+        src = available_exprs.get_source_instruction(expr)
         if src is None:
+            # return the original instruction
             src = inst
+
         return (expr, src)
 
-    def get_from_same_bb(self, inst: IRInstruction, expr: _Expression) -> list[IRInstruction]:
-        available_exprs = self.inst_to_available.get(inst, _AvailableExpression())
-        res = available_exprs.exprs[expr]
-        return [i for i in res if i != inst and i.parent == inst.parent]
-
     def _get_expression(
-        self, inst: IRInstruction, available_exprs: _AvailableExpression
+        self, inst: IRInstruction, generation: tuple, available_exprs: _AvailableExpression
     ) -> _Expression:
         # create expression
         operands: list[IROperand | _Expression] = [
-            self._get_operand(op, available_exprs) for op in inst.operands
+            self._get_operand(op, generation, available_exprs) for op in inst.operands
         ]
-        expr = _Expression(inst.opcode, operands)
+        expr = _Expression.create(inst.opcode, operands, generation, inst.parent, self.ignore_msize)
 
-        src_inst = available_exprs.get_source(expr)
+        src_inst = available_exprs.get_source_instruction(expr)
         if src_inst is not None:
             same_expr = self.inst_to_expr[src_inst]
             if same_expr is not None:
