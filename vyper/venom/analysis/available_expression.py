@@ -435,23 +435,6 @@ class CSEAnalysis(IRAnalysis):
         assert inst.opcode in UNINTERESTING_OPCODES
         return self._get_expression(inst, generation, available_exprs)
 
-    # todo: rename to `get_common_subexpression`?
-    def get_expression(self, inst: IRInstruction) -> tuple[_Expression, IRInstruction]:
-        available_exprs = self.bb_ins[inst.parent]
-        generation = self.inst_to_generation[inst]
-
-        expr = self.inst_to_expr.get(inst)
-        if expr is None:
-            # expr = self._get_operand(inst.output)
-            expr = self._get_expression(inst, generation, available_exprs)
-
-        src = available_exprs.get_source_instruction(expr)
-        if src is None:
-            # return the original instruction
-            src = inst
-
-        return (expr, src)
-
     def _get_expression(
         self, inst: IRInstruction, generation: tuple, available_exprs: _AvailableExpression
     ) -> _Expression:
@@ -470,3 +453,22 @@ class CSEAnalysis(IRAnalysis):
 
         self.inst_to_expr[inst] = expr
         return expr
+
+    # todo: rename to `get_common_subexpression`?
+    def get_expression(self, inst: IRInstruction) -> tuple[_Expression, IRInstruction]:
+        available_exprs = self.bb_ins[inst.parent]
+        generation = self.inst_to_generation[inst]
+
+        expr = self.inst_to_expr.get(inst)
+        if expr is None:
+            # expr = self._get_operand(inst.output)
+            expr = self._get_expression(inst, generation, available_exprs)
+
+        src = available_exprs.get_source_instruction(expr)
+        if src is None:
+            # return the original instruction
+            src = inst
+
+        return (expr, src)
+
+
