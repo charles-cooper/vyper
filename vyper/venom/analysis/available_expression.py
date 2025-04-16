@@ -367,16 +367,16 @@ class CSEAnalysis(IRAnalysis):
                 generation = _bump_generation(generation, write_effects)
 
     def _handle_bb(self, bb: IRBasicBlock) -> bool:
-        available_expr = _AvailableExpression.lattice_meet(
+        available_exprs = _AvailableExpression.lattice_meet(
             bb,
             [self.bb_outs.get(pred, _AvailableExpression()) for pred in bb.cfg_in],
         )
 
-        if bb in self.bb_ins and self.bb_ins[bb] == available_expr:
+        if bb in self.bb_ins and self.bb_ins[bb] == available_exprs:
             # no change
             return False
 
-        self.bb_ins[bb] = available_expr
+        self.bb_ins[bb] = available_exprs
 
         change = False
 
@@ -385,11 +385,8 @@ class CSEAnalysis(IRAnalysis):
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
 
-            #if inst not in self.inst_to_available or available_expr != self.inst_to_available[inst]:
-            #    self.inst_to_available[inst] = self.copy2(available_expr)
-
             generation = self.inst_to_generation[inst]
-            expr = self._get_expression(inst, generation, available_expr)
+            expr = self._get_expression(inst, generation, available_exprs)
 
             # nonidempotent instruction effect other instructions
             # but since it cannot be substituted it does not have
@@ -400,11 +397,11 @@ class CSEAnalysis(IRAnalysis):
             # read effects do not overlap write effects
             expr_effects = expr.get_writes(self.ignore_msize) & expr.get_reads(self.ignore_msize)
             if expr_effects == effects.EMPTY:
-                available_expr.add(expr, inst)
+                available_exprs.add(expr, inst)
 
-        if bb not in self.bb_outs or available_expr != self.bb_outs[bb]:
+        if bb not in self.bb_outs or available_exprs != self.bb_outs[bb]:
             last_generation = self.inst_to_generation[bb.instructions[-1]]
-            self.bb_outs[bb] = available_expr.output_expressions(last_generation)
+            self.bb_outs[bb] = available_exprs.output_expressions(last_generation)
             # change is only necessery when the output of the
             # basic block is changed (otherwise it wont affect rest)
             change |= True
