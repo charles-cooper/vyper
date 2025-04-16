@@ -376,7 +376,7 @@ class CSEAnalysis(IRAnalysis):
             # no change
             return False
 
-        self.bb_ins[bb] = self.copy1(available_expr)
+        self.bb_ins[bb] = available_expr
 
         change = False
 
