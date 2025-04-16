@@ -394,8 +394,7 @@ class CSEAnalysis(IRAnalysis):
                 available_exprs.add(expr, inst)
 
         if bb not in self.bb_outs or available_exprs != self.bb_outs[bb]:
-            last_generation = self.inst_to_generation[bb.instructions[-1]]
-            self.bb_outs[bb] = available_exprs.output_expressions(last_generation)
+            self.bb_outs[bb] = available_exprs.output_expressions(generation)
             # change is only necessery when the output of the
             # basic block is changed (otherwise it wont affect rest)
             change |= True
