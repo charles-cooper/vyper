@@ -186,11 +186,7 @@ def same(a: IROperand | _Expression, b: IROperand | _Expression) -> bool:
 
     # General case
     for self_op, other_op in zip(a.operands, b.operands):
-        if type(self_op) is not type(other_op):
-            return False
-        if isinstance(self_op, IROperand) and self_op != other_op:
-            return False
-        if isinstance(self_op, _Expression) and self_op is not other_op:
+        if not same(self_op, other_op):
             return False
 
     return True
