@@ -224,20 +224,6 @@ class _AvailableExpression:
             self.exprs[expr] = []
         self.exprs[expr].append(src_inst)
 
-    def _remove_effect(self, effect: Effects, ignore_msize):
-        if effect == effects.EMPTY:
-            return
-        to_remove = set()
-        for expr in self.exprs.keys():
-            read_effs = expr.get_reads(ignore_msize)
-            write_effs = expr.get_writes(ignore_msize)
-            op_effect = read_effs | write_effs
-            if op_effect & effect != effects.EMPTY:
-                to_remove.add(expr)
-
-        for expr in to_remove:
-            del self.exprs[expr]
-
     def get_source_instruction(self, expr: _Expression) -> IRInstruction | None:
         """
         Get source instruction of expression if currently available
