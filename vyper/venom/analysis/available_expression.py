@@ -368,10 +368,6 @@ class CSEAnalysis(IRAnalysis):
             [self.bb_outs.get(pred, _AvailableExpression()) for pred in bb.cfg_in],
         )
 
-        if bb in self.bb_ins and self.bb_ins[bb] == available_exprs:
-            # no change
-            return False
-
         self.bb_ins[bb] = available_exprs
 
         change = False
@@ -407,8 +403,9 @@ class CSEAnalysis(IRAnalysis):
             if expr_effects == effects.EMPTY:
                 available_exprs.add(expr, inst)
 
-        if bb not in self.bb_outs or available_exprs != self.bb_outs[bb]:
-            self.bb_outs[bb] = available_exprs.output_expressions(generation)
+        outs = available_exprs.output_expressions(generation)
+        if bb not in self.bb_outs or outs != self.bb_outs[bb]:
+            self.bb_outs[bb] = outs
             # change is only necessery when the output of the
             # basic block is changed (otherwise it wont affect rest)
             change |= True
@@ -467,6 +464,4 @@ class CSEAnalysis(IRAnalysis):
         if src is None:
             # return the original instruction
             src = inst
-        else:
-
         return (expr, src)
