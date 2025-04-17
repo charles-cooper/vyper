@@ -177,6 +177,19 @@ class _Expression:
     def is_commutative(self) -> bool:
         return self.opcode in COMMUTATIVE_INSTRUCTIONS
 
+    def compatible_gen(self, generation) -> bool:
+        if not compatible_generation(self.effect_generation, generation):
+            return False
+
+        for op in self.operands:
+            if not isinstance(op, _Expression):
+                continue
+            if not op.compatible_gen(generation):
+                return False
+
+        return True
+
+
 
 def same(a: IROperand | _Expression, b: IROperand | _Expression) -> bool:
     if isinstance(a, IROperand) and isinstance(b, IROperand):
@@ -254,7 +267,7 @@ class _AvailableExpression:
         res = _AvailableExpression()
 
         for k, v in self.exprs.items():
-            if not compatible_generation(k.effect_generation, generation):
+            if not k.compatible_gen(generation):
                 continue
             res.exprs[k] = v
 
@@ -392,7 +405,6 @@ class CSEAnalysis(IRAnalysis):
 
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
-            #breakpoint()
 
             expr = self._mk_expr(inst, generation, available_exprs)
 
