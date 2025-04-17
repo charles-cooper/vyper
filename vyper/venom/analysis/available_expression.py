@@ -105,7 +105,7 @@ class _Expression:
         return cls(opcode, operands, read_generation, bb)
 
     def with_fresh_generation(self, bb: IRBasicBlock):
-        fresh_generation = tuple(0 if g_i else None for g_i in self.effect_generation)
+        fresh_generation = tuple(0 if g_i is not None else None for g_i in self.effect_generation)
         return self.__class__(self.opcode, self.operands, fresh_generation, bb)
 
     # equality for lattices only based on original instruction
@@ -137,7 +137,7 @@ class _Expression:
             return repr(self.operands[0])
         res = ""
 
-        res += f"H({hash(self)})"
+        #res += f"H({hash(self)})"
 
         gs = [g for g in self.effect_generation if g is not None]
         if gs:
@@ -147,6 +147,15 @@ class _Expression:
         res += ",".join(repr(op) for op in self.operands)
         res += ")"
         return res
+
+    def get_bumped(self, ignore_msize: bool) -> _Expression:
+        writes = self.get_writes(ignore_msize)
+        if writes == effects.EMPTY:
+            return self
+        gen = tuple(g if g is not None else 0 for g in self.effect_generation)
+        gen = _bump_generation(gen, writes)
+        return _Expression.create(self.opcode, self.operands, gen, self.bb, ignore_msize)
+
 
     @cached_property
     def depth(self) -> int:
@@ -184,7 +193,7 @@ def same(a: IROperand | _Expression, b: IROperand | _Expression) -> bool:
 
     # due to lattice_meet, we never call same() on Expressions generated in
     # different basic blocks
-    assert a.bb == b.bb
+    #assert a.bb == b.bb
 
     if a.effect_generation != b.effect_generation:
         return False
@@ -269,18 +278,22 @@ class _AvailableExpression:
             res.exprs[new_expr] = v.copy()
 
         for lattice in lattices[1:]:
+            tmp = res
+            res = _AvailableExpression()
             for expr, insts in lattice.exprs.items():
                 expr = expr.with_fresh_generation(bb)
 
-                if expr not in res.exprs:
+                if expr not in tmp.exprs:
                     continue
 
-                new_insts = _list_intersection(insts, res.exprs[expr])
+                new_insts = _list_intersection(insts, tmp.exprs[expr])
 
                 # no common instruction which we can use
                 # (TODO: insert a phi instruction instead)
                 if len(new_insts) == 0:
-                    del res.exprs[expr]
+                    continue
+                
+                res.exprs[expr] = new_insts
 
         return res
 
@@ -298,7 +311,7 @@ def _bump_generation(generation: tuple[int, ...], write_effect: effects.Effects)
 
 def compatible_generation(generation: tuple[int, ...], to_compare: tuple[Optional[int], ...]):
     for lhs, rhs in zip(generation, to_compare):
-        if lhs != rhs and rhs is not None:
+        if lhs != rhs and lhs is not None:
             return False
 
     return True
@@ -342,7 +355,7 @@ class CSEAnalysis(IRAnalysis):
     def get_from_same_bb(self, inst: IRInstruction, expr: _Expression) -> list[IRInstruction]:
         available_exprs = self.bb_ins[inst.parent]
         res = available_exprs.exprs[expr]
-        return [i for i in res if i != inst and i.parent == inst.parent]
+        return [i for i in res if i.parent == inst.parent]
 
     # msize effect should be only necessery
     # to be handled when there is a possibility
@@ -379,18 +392,13 @@ class CSEAnalysis(IRAnalysis):
 
             if inst.opcode in UNINTERESTING_OPCODES or inst.opcode in BB_TERMINATORS:
                 continue
+            #breakpoint()
 
             expr = self._mk_expr(inst, generation, available_exprs)
 
             self._update_expression(inst, expr)
 
-            replaceable_inst = available_exprs.get_source_instruction(expr)
-            if replaceable_inst is not None and replaceable_inst != inst:
-                # we found a replaceable instruction, don't bump generation
-                pass
-            else:
-                # we only bump generation if the instruction was not replaceable
-                generation = _bump_generation(generation, get_write_effects(inst.opcode, self.ignore_msize))
+            generation = _bump_generation(generation, get_write_effects(inst.opcode, self.ignore_msize))
 
             # nonidempotent instruction effect other instructions
             # but since it cannot be substituted it does not have
@@ -401,7 +409,7 @@ class CSEAnalysis(IRAnalysis):
             # read effects do not overlap write effects
             expr_effects = expr.get_writes(self.ignore_msize) & expr.get_reads(self.ignore_msize)
             if expr_effects == effects.EMPTY:
-                available_exprs.add(expr, inst)
+                available_exprs.add(expr.get_bumped(self.ignore_msize), inst)
 
         outs = available_exprs.output_expressions(generation)
         if bb not in self.bb_outs or outs != self.bb_outs[bb]:
@@ -428,6 +436,9 @@ class CSEAnalysis(IRAnalysis):
         if inst.opcode == "store":
             return self._get_operand(inst.operands[0], generation, available_exprs)
 
+        if inst in self.inst_to_expr:
+            return self.inst_to_expr[inst]
+
         return self._mk_expr(inst, generation, available_exprs)
 
     def _mk_expr(
@@ -439,9 +450,9 @@ class CSEAnalysis(IRAnalysis):
         ]
         expr = _Expression.create(inst.opcode, operands, generation, inst.parent, self.ignore_msize)
 
-        return self._get_available_expression(expr, available_exprs) or expr
+        return expr
 
-    def _get_available_expression(self, expr: _Expression, available_exprs: _AvailableExpression) -> _Expression:
+    def _get_available_expression(self, expr: _Expression, available_exprs: _AvailableExpression) -> _Expression | None:
         src_inst = available_exprs.get_source_instruction(expr)
         if src_inst is None:
             return None

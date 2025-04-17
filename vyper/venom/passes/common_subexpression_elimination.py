@@ -51,13 +51,14 @@ class CSE(IRPass):
                     # no replacement
                     continue
 
+
                 # heuristic to not replace small expressions across
                 # basic block bounderies (it can create better codesize)
                 if expr.depth > SMALL_EXPRESSION:
                     res[inst] = replace_inst
                 else:
                     from_same_bb = self.expression_analysis.get_from_same_bb(inst, expr)
-                    if len(from_same_bb) > 0:
+                    if len(from_same_bb) > 0 and from_same_bb[0] != inst:
                         # arbitrarily pick a replacement instruction
                         replace_inst = from_same_bb[0]
                         res[inst] = replace_inst
