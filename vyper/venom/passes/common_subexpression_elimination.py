@@ -42,7 +42,7 @@ class CSE(IRPass):
             for inst in bb.instructions:
                 # skip instruction that for sure
                 # wont be substituted
-                if inst.opcode in UNINTERESTING_OPCODES:
+                if inst.opcode in NO_SUBSTITUTE_OPCODES:
                     continue
                 if inst.opcode in NONIDEMPOTENT_INSTRUCTIONS:
                     continue
@@ -57,7 +57,7 @@ class CSE(IRPass):
                     res[inst] = replace_inst
                 else:
                     from_same_bb = self.expression_analysis.get_from_same_bb(inst, expr)
-                    if len(from_same_bb) > 0:
+                    if len(from_same_bb) > 0 and from_same_bb[0] != inst:
                         # arbitrarily pick a replacement instruction
                         replace_inst = from_same_bb[0]
                         res[inst] = replace_inst
