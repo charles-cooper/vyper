@@ -42,7 +42,7 @@ class CSE(IRPass):
             for inst in bb.instructions:
                 # skip instruction that for sure
                 # wont be substituted
-                if inst.opcode in UNINTERESTING_OPCODES:
+                if inst.opcode in NO_SUBSTITUTE_OPCODES:
                     continue
                 if inst.opcode in NONIDEMPOTENT_INSTRUCTIONS:
                     continue
@@ -50,7 +50,6 @@ class CSE(IRPass):
                 if replace_inst == inst:
                     # no replacement
                     continue
-
 
                 # heuristic to not replace small expressions across
                 # basic block bounderies (it can create better codesize)
