@@ -22,13 +22,22 @@ class DFTPass(IRPass):
         self.visited_instructions: OrderedSet[IRInstruction] = OrderedSet()
 
         self.dfg = self.analyses_cache.force_analysis(DFGAnalysis)
+        self.liveness = self.analyses_cache.force_analysis(LivenessAnalysis)
 
-        for bb in self.function.get_basic_blocks():
-            self._process_basic_block(bb)
+        self.last_changed = defaultdict(int)
+
+        worklist = OrderedSet(self.function.get_basic_blocks())
+        while len(worklist) > 0:
+            bb = worklist.pop()
+            changed = self._process_basic_block(bb)
+            if changed:
+                worklist.update(bb.cfg_in)
 
         self.analyses_cache.invalidate_analysis(LivenessAnalysis)
 
     def _process_basic_block(self, bb: IRBasicBlock) -> None:
+        self.liveness._calculate_out_vars(bb)
+
         self._calculate_dependency_graphs(bb)
         self.instructions = list(bb.pseudo_instructions)
         non_phi_instructions = list(bb.non_phi_instructions)
@@ -37,8 +46,16 @@ class DFTPass(IRPass):
         for inst in bb.instructions:
             self._calculate_data_offspring(inst)
 
+        entry_instructions: OrderedSet[IRInstruction] = OrderedSet()
+        for var in bb.out_vars:
+            src = self.dfg.get_producing_instruction(var)
+            assert src is not None
+            if src.parent != bb:
+                continue
+            entry_instructions.add(src)
+
         # Compute entry points in the graph of instruction dependencies
-        entry_instructions: OrderedSet[IRInstruction] = OrderedSet(non_phi_instructions)
+        entry_instructions.update(non_phi_instructions)
         for inst in non_phi_instructions:
             to_remove = self.dda.get(inst, OrderedSet()) | self.eda.get(inst, OrderedSet())
             entry_instructions.dropmany(to_remove)
@@ -49,8 +66,17 @@ class DFTPass(IRPass):
         for inst in entry_instructions_list:
             self._process_instruction_r(self.instructions, inst)
 
+        changed = sum(x != y for (x,y) in zip(bb.instructions, self.instructions))
+        # minimize changes
+        if changed > self.last_changed[bb]:
+            return
+        self.last_changed[bb] = changed
+        self.liveness._calculate_liveness(bb)  # recompute
+
         bb.instructions = self.instructions
         assert bb.is_terminated, f"Basic block should be terminated {bb}"
+
+        return changed
 
     def _process_instruction_r(self, instructions: list[IRInstruction], inst: IRInstruction):
         if inst in self.visited_instructions:
