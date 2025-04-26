@@ -1,5 +1,4 @@
 from vyper.venom.analysis import DFGAnalysis, LivenessAnalysis, DominatorTreeAnalysis, VarDefinition
-from vyper.venom.check_venom import check_venom_fn
 from vyper.venom.basicblock import IRVariable
 from vyper.venom.passes.base_pass import InstUpdater, IRPass
 
@@ -48,10 +47,11 @@ class StoreElimination(IRPass):
 
             self.updater.update_operands(use_inst, {var: new_var})
 
+            # fix degenerate phis
             if use_inst.opcode == "phi":
-                ops = [var for _, var in use_inst.phi_operands]
+                ops = list(use_inst.phi_operands)
                 if all(op == ops[0] for op in ops):
-                    self.updater.store(use_inst, ops[0])
+                    self.updater.store(use_inst, ops[0][1])
 
         if len(uses) == 0:
             self.updater.remove(inst)

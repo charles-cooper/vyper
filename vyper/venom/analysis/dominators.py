@@ -42,7 +42,7 @@ class DominatorTreeAnalysis(IRAnalysis):
 
     def dominates(self, dom, sub):
         """
-        Check if dom dominates sub.
+        Check if `dom` dominates `sub`.
         """
         return dom in self.dominators[sub]
 
