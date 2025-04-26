@@ -18,14 +18,14 @@ def instructions_eq(i1: IRInstruction, i2: IRInstruction) -> bool:
     return i1.output == i2.output and i1.opcode == i2.opcode and i1.operands == i2.operands
 
 
-def assert_bb_eq(bb1: IRBasicBlock, bb2: IRBasicBlock):
-    assert bb1.label.value == bb2.label.value
-    for i1, i2 in zip(bb1.instructions, bb2.instructions):
-        assert instructions_eq(i1, i2), (bb1, f"[{i1}] != [{i2}]")
+def assert_bb_eq(bb: IRBasicBlock, expected: IRBasicBlock):
+    assert bb.label.value == expected.label.value
+    for i1, i2 in zip(bb.instructions, expected.instructions):
+        assert instructions_eq(i1, i2), (bb, f"[{i1}] != [{i2}]")
 
     # assert after individual instruction checks, makes it easier to debug
     # if there is a difference.
-    assert len(bb1.instructions) == len(bb2.instructions)
+    assert len(bb.instructions) == len(expected.instructions)
 
 
 def assert_fn_eq(fn1: IRFunction, fn2: IRFunction):

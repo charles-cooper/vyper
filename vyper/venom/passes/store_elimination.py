@@ -1,4 +1,4 @@
-from vyper.venom.analysis import DFGAnalysis, LivenessAnalysis
+from vyper.venom.analysis import DFGAnalysis, LivenessAnalysis, DominatorTreeAnalysis
 from vyper.venom.basicblock import IRVariable
 from vyper.venom.passes.base_pass import InstUpdater, IRPass
 
@@ -14,6 +14,7 @@ class StoreElimination(IRPass):
 
     def run_pass(self):
         self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)
+        self.dom = self.analyses_cache.request_analysis(DominatorTreeAnalysis)
         self.updater = InstUpdater(self.dfg)
 
         assert isinstance(self.dfg, DFGAnalysis)
@@ -30,13 +31,14 @@ class StoreElimination(IRPass):
         Process store instruction. If the variable is only used by a load instruction,
         forward the variable to the load instruction.
         """
-        if any([inst.opcode == "phi" for inst in self.dfg.get_uses(new_var)]):
-            return
-
         uses = self.dfg.get_uses(var)
-        if any([inst.opcode == "phi" for inst in uses]):
-            return
-        for use_inst in uses.copy():
+        for use_inst in list(uses):
+            if use_inst.opcode == "phi":
+                new_src = self.dfg.get_producing_instruction(new_var)
+                valid_replacement = new_src is not None and self.dom.dominates(new_src.parent, use_inst.parent)
+                if not valid_replacement:
+                    continue
             self.updater.update_operands(use_inst, {var: new_var})
 
-        self.updater.remove(inst)
+        if len(uses) == 0:
+            self.updater.remove(inst)
