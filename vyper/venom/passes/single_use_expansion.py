@@ -1,5 +1,5 @@
 from vyper.venom.analysis import DFGAnalysis, LivenessAnalysis
-from vyper.venom.basicblock import IRInstruction, IRLiteral, IRVariable
+from vyper.venom.basicblock import IRInstruction, IRLiteral, IRVariable, IROperand
 from vyper.venom.passes.base_pass import IRPass
 from vyper.venom.passes.machinery.inst_updater import InstUpdater
 
@@ -23,8 +23,12 @@ class SingleUseExpansion(IRPass):
     def run_pass(self):
         self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)
         self.updater = InstUpdater(self.dfg)
+        self.phis: list[IRInstruction] = []
         for bb in self.function.get_basic_blocks():
             self._process_bb(bb)
+
+        for inst in self.phis:
+            self._process_phi(inst)
 
         self.analyses_cache.invalidate_analysis(DFGAnalysis)
         self.analyses_cache.invalidate_analysis(LivenessAnalysis)
@@ -38,7 +42,7 @@ class SingleUseExpansion(IRPass):
                 continue
 
             if inst.opcode == "phi":
-                self._process_phi(inst)
+                self.phis.append(inst)
                 i += 1
                 continue
 
@@ -58,10 +62,11 @@ class SingleUseExpansion(IRPass):
                     # skip them for now.
                     continue
 
-                var = self.function.get_next_variable()
-                to_insert = IRInstruction("assign", [op], var)
-                bb.insert_instruction(to_insert, index=i)
-                inst.operands[j] = var
+                var = self.updater.add_before(inst, "assign", [op])
+                assert var is not None
+                ops = inst.operands.copy()
+                ops[j] = var
+                self.updater.update(inst, inst.opcode, ops) 
                 i += 1
 
             i += 1
@@ -69,9 +74,16 @@ class SingleUseExpansion(IRPass):
     def _process_phi(self, inst: IRInstruction):
         assert inst.opcode == "phi"
 
-        replacements: dict[IRVariable, IRVariable] = {}
+        replacements: dict[IROperand, IROperand] = {}
         for label, var in inst.phi_operands:
             assert isinstance(var, IRVariable)
+            uses = [
+                use
+                for use in self.dfg.get_uses(var) 
+                if not (use.opcode == "assign" or (use.opcode == "phi" and use.parent != inst.parent))
+            ]
+            if len(uses) <= 1:
+                continue
             bb = self.function.get_basic_block(label.name)
             term = bb.instructions[-1]
             assert term.is_bb_terminator
@@ -79,4 +91,4 @@ class SingleUseExpansion(IRPass):
             assert new_var is not None
             replacements[var] = new_var
 
-        inst.replace_operands(replacements)
+        self.updater.update_operands(inst, replacements) 
