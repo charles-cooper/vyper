@@ -70,6 +70,15 @@ def analyze_functions(vy_module: vy_ast.Module) -> None:
     err_list = ExceptionList()
 
     for node in vy_module.get_children(vy_ast.FunctionDef):
+        func_t = node._metadata["func_type"]
+        if getattr(func_t, "is_abstract", False):
+            # Skip analysis of abstract stubs; they must have an ellipsis body.
+            body = node.body
+            if not (len(body) == 1 and isinstance(body[0], vy_ast.Expr) and isinstance(body[0].value, vy_ast.Ellipsis)):
+                raise FunctionDeclarationException(
+                    "abstract functions must have body `...`", node
+                )
+            continue
         _analyze_function_r(vy_module, node, err_list)
 
     for node in vy_module.get_children(vy_ast.VariableDecl):
@@ -87,6 +96,8 @@ def _analyze_function_r(
 
     for call_t in func_t.called_functions:
         if isinstance(call_t, ContractFunctionT):
+            if getattr(call_t, "is_abstract", False):
+                continue
             assert isinstance(call_t.ast_def, vy_ast.FunctionDef)  # help mypy
             _analyze_function_r(vy_module, call_t.ast_def, err_list)
 

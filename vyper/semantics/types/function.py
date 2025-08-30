@@ -100,6 +100,7 @@ class ContractFunctionT(VyperType):
         nonreentrant: bool = False,
         do_raw_return: bool = False,
         ast_def: Optional[vy_ast.VyperNode] = None,
+        is_abstract: bool = False,
     ) -> None:
         super().__init__()
 
@@ -112,6 +113,7 @@ class ContractFunctionT(VyperType):
         self.nonreentrant = nonreentrant
         self.do_raw_return = do_raw_return
         self.from_interface = from_interface
+        self.is_abstract = is_abstract
 
         # sanity check, nonreentrant used to be Optional[str]
         assert isinstance(self.nonreentrant, bool)
@@ -498,6 +500,7 @@ class ContractFunctionT(VyperType):
             nonreentrant=nonreentrant,
             do_raw_return=decorators.raw_return,
             ast_def=funcdef,
+            is_abstract=getattr(decorators, "abstract_node", None) is not None,
         )
 
     def set_reentrancy_key_position(self, position: VarOffset) -> None:
@@ -878,6 +881,9 @@ def _parse_decorators(funcdef: vy_ast.FunctionDef) -> _ParsedDecorators:
                 ret.set_visibility(decorator)
             elif StateMutability.is_valid_value(decorator.id):
                 ret.set_state_mutability(decorator)
+            elif decorator.id == "abstract":
+                # mark as abstract; semantics handled later
+                ret.abstract_node = decorator  # type: ignore[attr-defined]
             else:
                 raise FunctionDeclarationException(f"Unknown decorator: {decorator.id}", decorator)
 

@@ -171,6 +171,7 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         self._events: list[EventT] = []
 
         self.module_t: Optional[ModuleT] = None
+        self._imported_modules: dict[str, ModuleInfo] = {}
 
     def analyze_module_body(self):
         # generate a `ModuleT` from the top-level node
@@ -204,6 +205,12 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         # handle implements last, after all functions are handled
         self._visit_nodes_linear(vy_ast.ImplementsDecl)
 
+        # collect abstract obligations in this module (functions which call abstract hooks)
+        self._collect_abstract_obligations()
+
+        # parse provides/resolutions declarations into metadata for later validation
+        self._visit_nodes_linear((vy_ast.ProvidesDecl, vy_ast.ResolutionsDecl))
+
         # we are done! any remaining nodes should raise errors; visit
         # them to trip the exception.
         for n in self._to_visit:
@@ -215,6 +222,134 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         # there are constructor issues.
         _ns.update({k: self.namespace[k] for k in self.namespace._scopes[-1]})  # type: ignore
         self.ast._metadata["namespace"] = _ns
+
+    def _collect_abstract_obligations(self):
+        obligations = set()
+        for fn_ast in self.ast.get_children(vy_ast.FunctionDef):
+            # scan direct calls; if any call resolves to an abstract internal function, record it
+            for call in fn_ast.get_descendants(vy_ast.Call):
+                try:
+                    call_t = get_exact_type_from_node(call.func)
+                except Exception:
+                    continue
+                if isinstance(call_t, ContractFunctionT) and call_t.is_internal and getattr(call_t, "is_abstract", False):
+                    obligations.add(call_t)
+        self.ast._metadata["abstract_obligations"] = obligations
+
+    def _iter_mapping_items(self, annotation):
+        from vyper import ast as vy_ast
+        if isinstance(annotation, vy_ast.Tuple):
+            for item in annotation.elements:
+                yield item
+        else:
+            yield annotation
+
+    def _parse_hook_expr(self, expr):
+        # returns (hook_fn_t, hook_str)
+        try:
+            hook_t = get_exact_type_from_node(expr)
+        except Exception:
+            # provide a clearer error consistent with tests
+            raise StructureException(f"Cannot provide {expr.node_source_code}", expr)
+        if not isinstance(hook_t, ContractFunctionT):
+            raise StructureException("invalid hook mapping (left side)", expr)
+        return hook_t, expr.node_source_code
+
+    def _parse_impl_expr(self, expr):
+        impl_t = get_exact_type_from_node(expr)
+        if not isinstance(impl_t, ContractFunctionT):
+            raise StructureException("invalid implementation (right side)", expr)
+        return impl_t
+
+    def visit_ProvidesDecl(self, node):
+        from vyper import ast as vy_ast
+
+        provides = self.ast._metadata.setdefault("provides_map", [])
+
+        for item in self._iter_mapping_items(node.annotation):
+            if not isinstance(item, vy_ast.BinOp) or not isinstance(item.op, vy_ast.RShift):
+                raise StructureException("invalid provides mapping", item)
+
+            hook_t, hook_str = self._parse_hook_expr(item.left)
+            if not getattr(hook_t, "is_abstract", False):
+                raise StructureException("No such abstract method or not abstract", item.left)
+
+            impl_t = self._parse_impl_expr(item.right)
+
+            # disallow overriding provisions from imports: if any imported module already
+            # provides this hook, error.
+            for mi in self._imported_modules.values():
+                other = mi.module_t.decl_node._metadata.get("provides_map", [])
+                for (h, _impl, _s, _n) in other:
+                    if h is hook_t:
+                        raise StructureException(f"Cannot provide {hook_str}; already provided upstream", item.left)
+
+            provides.append((hook_t, impl_t, hook_str, node))
+
+    def visit_ResolutionsDecl(self, node):
+        from vyper import ast as vy_ast
+
+        resolutions = self.ast._metadata.setdefault("resolutions_map", [])
+
+        for item in self._iter_mapping_items(node.annotation):
+            if not isinstance(item, vy_ast.BinOp) or not isinstance(item.op, vy_ast.RShift):
+                raise StructureException("invalid resolution mapping", item)
+
+            hook_t, hook_str = self._parse_hook_expr(item.left)
+            rhs = item.right
+
+            mode = None
+            impl_t = None
+            replaces = []
+
+            if isinstance(rhs, vy_ast.Call) and isinstance(rhs.func, vy_ast.Name):
+                if rhs.func.id == "accept":
+                    mode = "accept"
+                    if len(rhs.args) != 1:
+                        raise StructureException("accept() takes exactly one argument", rhs)
+                    try:
+                        impl_t = self._parse_impl_expr(rhs.args[0])
+                    except Exception:
+                        raise StructureException("No provider found", rhs.args[0])
+                elif rhs.func.id == "override":
+                    mode = "override"
+                    if len(rhs.args) != 1:
+                        raise StructureException("override() requires new implementation as first arg", rhs)
+                    impl_t = self._parse_impl_expr(rhs.args[0])
+                    # parse replaces kwarg list if present
+                    for kw in rhs.keywords or []:
+                        if kw.arg == "replaces":
+                            arr = kw.value
+                            if isinstance(arr, vy_ast.List):
+                                for e in arr.elements:
+                                    try:
+                                        replaces.append(self._parse_impl_expr(e))
+                                    except Exception:
+                                        raise StructureException(
+                                            f"Invalid override: {e.node_source_code}", e
+                                        )
+                            else:
+                                try:
+                                    replaces.append(self._parse_impl_expr(arr))
+                                except Exception:
+                                    raise StructureException(
+                                        f"Invalid override: {arr.node_source_code}", arr
+                                    )
+                else:
+                    raise StructureException("invalid resolution directive", rhs.func)
+            else:
+                # fresh mapping
+                mode = "fresh"
+                impl_t = self._parse_impl_expr(rhs)
+
+            resolutions.append({
+                "hook": hook_t,
+                "hook_str": hook_str,
+                "mode": mode,
+                "impl": impl_t,
+                "replaces": replaces,
+                "node": node,
+            })
 
     def _visit_nodes_linear(self, node_type):
         for node in self._to_visit.copy():
@@ -737,6 +872,13 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         import_info._typ = module_info
 
         self.namespace[import_info.alias] = module_info
+        # track non-interface imports for later validations
+        try:
+            from vyper.semantics.types.module import ModuleInfo as _MI  # type: ignore
+            if isinstance(module_info, _MI):
+                self._imported_modules[import_info.alias] = module_info
+        except Exception:
+            pass
 
     def _load_import(self, import_info: ImportInfo) -> Any:
         path = import_info.compiler_input.path
