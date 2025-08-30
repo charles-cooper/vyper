@@ -106,6 +106,14 @@ def get_node(
         elif getattr(ast_struct["target"], "id", None) == "exports":
             ast_struct["ast_type"] = "ExportsDecl"
 
+        # Replace "resolutions:" `AnnAssign` nodes with `ResolutionsDecl`
+        elif getattr(ast_struct["target"], "id", None) == "resolutions":
+            ast_struct["ast_type"] = "ResolutionsDecl"
+
+        # Replace "provides:" `AnnAssign` nodes with `ProvidesDecl`
+        elif getattr(ast_struct["target"], "id", None) == "provides":
+            ast_struct["ast_type"] = "ProvidesDecl"
+
         # Replace state and local variable declarations `AnnAssign` with `VariableDecl`
         else:
             ast_struct["ast_type"] = "VariableDecl"
@@ -1610,6 +1618,52 @@ class ExportsDecl(Stmt):
         for item in items:
             if not isinstance(item, (Name, Attribute)):
                 raise StructureException("invalid exports", item)
+
+
+class ResolutionsDecl(Stmt):
+    """
+    A `resolutions` declaration.
+
+    This is a top-level annotation that binds abstract hooks to
+    implementations. The annotation expression is parsed as normal
+    Python; the pre-parser rewrites `=>` into `>>` so that each mapping
+    appears as a BinOp(RShift) and can be interpreted later.
+
+    Attributes
+    ----------
+    annotation : ExprNode
+        A single mapping, or a tuple of mappings
+    """
+
+    __slots__ = ("annotation",)
+    _only_empty_fields = ("value",)
+
+    def validate(self):
+        # Be permissive here; detailed structure is validated later in
+        # semantic analysis. We only ensure there is an annotation.
+        if self.annotation is None:
+            raise StructureException("invalid resolutions", self)
+
+
+class ProvidesDecl(Stmt):
+    """
+    A `provides` declaration.
+
+    Registers candidate implementations for abstract hooks. The
+    annotation expression uses `=>` (rewritten to `>>`) mappings.
+
+    Attributes
+    ----------
+    annotation : ExprNode
+        A single mapping, or a tuple of mappings
+    """
+
+    __slots__ = ("annotation",)
+    _only_empty_fields = ("value",)
+
+    def validate(self):
+        if self.annotation is None:
+            raise StructureException("invalid provides", self)
 
 
 class If(Stmt):

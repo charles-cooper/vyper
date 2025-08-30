@@ -2,7 +2,18 @@ import enum
 import io
 import re
 from collections import defaultdict
-from tokenize import COMMENT, NAME, OP, STRING, TokenError, TokenInfo, tokenize, untokenize
+from tokenize import (
+    COMMENT,
+    NAME,
+    NL,
+    NEWLINE,
+    OP,
+    STRING,
+    TokenError,
+    TokenInfo,
+    tokenize,
+    untokenize,
+)
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
@@ -275,6 +286,9 @@ class PreParser:
         for_parser = ForParser(code)
         hex_string_parser = HexStringParser()
 
+        # Rewrites `=>` to `>>` inside provides:/resolutions: annotations
+        mapping_rewriter = MappingRewriter()
+
         _col_adjustments: dict[int, int] = defaultdict(lambda: 0)
 
         code_bytes = code.encode("utf-8")
@@ -343,7 +357,11 @@ class PreParser:
             if (typ, string) == (OP, ";"):
                 raise SyntaxException("Semi-colon statements not allowed", code, start[0], start[1])
 
-            if not for_parser.consume(token) and not hex_string_parser.consume(token, result):
+            if (
+                not for_parser.consume(token)
+                and not hex_string_parser.consume(token, result)
+                and not mapping_rewriter.consume(token, result)
+            ):
                 result.extend(toks)
 
         for_loop_annotations = {}
@@ -356,3 +374,86 @@ class PreParser:
         self.for_loop_annotations = for_loop_annotations
         self.hex_string_locations = hex_string_parser.locations
         self.reformatted_code = untokenize(result).decode("utf-8")
+
+
+class MappingRewriter:
+    """
+    Pre-parser helper to rewrite `=>` into `>>` within the annotation of
+    top-level `provides:` and `resolutions:` declarations.
+
+    We only rewrite inside the annotation expression following a top-level
+    `provides:` or `resolutions:`. The Python parser can then accept the
+    expression as a BinOp(RShift), and later stages can interpret it as a
+    hook mapping.
+    """
+
+    class _State(enum.Enum):
+        INACTIVE = enum.auto()
+        AWAIT_COLON = enum.auto()
+        ACTIVE = enum.auto()
+
+    def __init__(self):
+        # run unconditionally; treat any `=>` pair as a mapping arrow
+        self._state = self._State.ACTIVE
+        self._paren_depth = 0
+        self._hold_equal: TokenInfo | None = None
+
+    def _maybe_start(self, token: TokenInfo):
+        if token.type == NAME and token.start[1] == 0 and token.string in ("provides", "resolutions"):
+            # we saw the keyword at column 0; wait for ':'
+            self._state = self._State.AWAIT_COLON
+
+    def _maybe_activate(self, token: TokenInfo):
+        if self._state == self._State.AWAIT_COLON and token.type == OP and token.string == ":":
+            # start rewriting until end of the annotation expression
+            self._state = self._State.ACTIVE
+            self._paren_depth = 0
+
+    def _maybe_deactivate(self, token: TokenInfo):
+        # End the annotation when we reach a newline at depth 0
+        if self._state == self._State.ACTIVE and token.type == NEWLINE and self._paren_depth == 0:
+            self._state = self._State.INACTIVE
+            self._hold_equal = None
+
+    def _update_paren_depth(self, token: TokenInfo):
+        if token.type != OP:
+            return
+        if token.string in ("(", "[", "{"):
+            self._paren_depth += 1
+        elif token.string in (")", "]", "}") and self._paren_depth > 0:
+            self._paren_depth -= 1
+
+    def consume(self, token: TokenInfo, result: list[TokenInfo]) -> bool:
+        # detect potential start
+        # Always ACTIVE: perform rewrites and track parentheses/newlines
+
+        # Handle pending '=' from a potential '=>'
+        if self._hold_equal is not None:
+            if token.type == OP and token.string == ">":
+                # emit a single '>>' token in place of '=' '>'
+                eq_tok = self._hold_equal
+                new_tok = TokenInfo(OP, ">>", eq_tok.start, token.end, token.line)
+                result.append(new_tok)
+                self._hold_equal = None
+                # we consumed current token
+                self._update_paren_depth(token)
+                self._maybe_deactivate(token)
+                return True
+            else:
+                # flush the held '=' since next token isn't '>'
+                result.append(self._hold_equal)
+                self._hold_equal = None
+                # continue processing current token below
+
+        # Possibly start holding '=' for a future '=>'
+        if token.type == OP and token.string == "=":
+            self._hold_equal = token
+            # swallow '=' for now; either combine with '>' or flush on next token
+            return True
+
+        # Track depth and deactivation
+        self._update_paren_depth(token)
+        self._maybe_deactivate(token)
+
+        # Do not consume; let caller emit the token unchanged
+        return False
