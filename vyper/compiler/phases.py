@@ -347,12 +347,81 @@ class CompilerData:
         return runtime_venom
 
     @cached_property
+    def assembly_runtime(self) -> list:
+        """
+        Calls
+        -----
+        self.settings
+        self.venom_runtime
+        self.ir_runtime
+        """
+        if self.settings.experimental_codegen:
+            assert self.settings.optimize is not None  # mypy hint
+            return generate_assembly_experimental(
+                self.venom_runtime, optimize=self.settings.optimize
+            )
+        else:
+            return generate_assembly(self.ir_runtime, self.settings.optimize)
+
+    
+    @cached_property
+    def _bytecode_runtime(self) -> tuple[bytes, dict[str, Any]]:
+        """
+        Calls
+        -----
+        self.assembly_runtime
+        """
+        return generate_bytecode(self.assembly_runtime)
+
+    @property
+    def bytecode_runtime(self) -> bytes:
+        """
+        Calls
+        -----
+        self._bytecode_runtime
+        """
+        return self._bytecode_runtime[0]
+
+    @property
+    def source_map_runtime(self) -> dict[str, Any]:
+        """
+        Calls
+        -----
+        self._bytecode_runtime
+        """
+        return self._bytecode_runtime[1]
+
+    @cached_property
+    def bytecode_metadata(self) -> Optional[bytes]:
+        """
+        Calls
+        -----
+        self.assembly_runtime
+        self.compilation_target
+        self.bytecode_runtime
+        self.integrity_sum
+        """
+        if self.no_bytecode_metadata:
+            return None
+
+        runtime_asm = self.assembly_runtime
+        runtime_data_segment_lengths = compile_ir.get_data_segment_lengths(runtime_asm)
+
+        immutables_len = self.compilation_target._metadata["type"].immutable_section_bytes
+        runtime_codesize = len(self.bytecode_runtime)
+
+        metadata = bytes.fromhex(self.integrity_sum)
+        return compile_ir.generate_cbor_metadata(
+            metadata, runtime_codesize, runtime_data_segment_lengths, immutables_len
+        )
+    
+    @cached_property
     def venom_deploytime(self):
         """
         Calls
         -----
-        self.bytecode_runtime (below)
-        self.bytecode_metadata (below)
+        self.bytecode_runtime
+        self.bytecode_metadata
         self.compilation_target
         self.ir_nodes
         self.settings
@@ -396,47 +465,6 @@ class CompilerData:
             )
 
     @cached_property
-    def bytecode_metadata(self) -> Optional[bytes]:
-        """
-        Calls
-        -----
-        self.assembly_runtime (below)
-        self.compilation_target
-        self.bytecode_runtime
-        self.integrity_sum
-        """
-        if self.no_bytecode_metadata:
-            return None
-
-        runtime_asm = self.assembly_runtime
-        runtime_data_segment_lengths = compile_ir.get_data_segment_lengths(runtime_asm)
-
-        immutables_len = self.compilation_target._metadata["type"].immutable_section_bytes
-        runtime_codesize = len(self.bytecode_runtime)
-
-        metadata = bytes.fromhex(self.integrity_sum)
-        return compile_ir.generate_cbor_metadata(
-            metadata, runtime_codesize, runtime_data_segment_lengths, immutables_len
-        )
-
-    @cached_property
-    def assembly_runtime(self) -> list:
-        """
-        Calls
-        -----
-        self.settings
-        self.venom_runtime
-        self.ir_runtime
-        """
-        if self.settings.experimental_codegen:
-            assert self.settings.optimize is not None  # mypy hint
-            return generate_assembly_experimental(
-                self.venom_runtime, optimize=self.settings.optimize
-            )
-        else:
-            return generate_assembly(self.ir_runtime, self.settings.optimize)
-
-    @cached_property
     def _bytecode(self) -> tuple[bytes, dict[str, Any]]:
         """
         Calls
@@ -462,33 +490,6 @@ class CompilerData:
         self._bytecode
         """
         return self._bytecode[1]
-
-    @cached_property
-    def _bytecode_runtime(self) -> tuple[bytes, dict[str, Any]]:
-        """
-        Calls
-        -----
-        self.assembly_runtime
-        """
-        return generate_bytecode(self.assembly_runtime)
-
-    @property
-    def bytecode_runtime(self) -> bytes:
-        """
-        Calls
-        -----
-        self._bytecode_runtime
-        """
-        return self._bytecode_runtime[0]
-
-    @property
-    def source_map_runtime(self) -> dict[str, Any]:
-        """
-        Calls
-        -----
-        self._bytecode_runtime
-        """
-        return self._bytecode_runtime[1]
 
     @cached_property
     def blueprint_bytecode(self) -> bytes:
