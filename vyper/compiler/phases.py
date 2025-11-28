@@ -116,6 +116,14 @@ class CompilerData:
 
     @cached_property
     def vyper_module(self):
+        """
+        Calls
+        -----
+        vy_ast.parse_to_ast
+            to create and return an AST
+        """
+
+
         is_vyi = self.contract_path.suffix == ".vyi"
 
         ast = vy_ast.parse_to_ast(
@@ -130,6 +138,12 @@ class CompilerData:
 
     @cached_property
     def settings(self):
+        """
+        Calls
+        -----
+        self.vyper_module
+            to extract settings
+        """
         settings = self.vyper_module.settings
 
         if self.original_settings:
@@ -157,6 +171,11 @@ class CompilerData:
 
     @cached_property
     def _resolve_imports(self):
+        """
+        Calls
+        -----
+        self.vyper_module
+        """
         # deepcopy so as to not interfere with `-f ast` output
         vyper_module = copy.deepcopy(self.vyper_module)
         with self.input_bundle.search_path(Path(vyper_module.resolved_path).parent):
@@ -179,14 +198,29 @@ class CompilerData:
 
     @cached_property
     def integrity_sum(self):
+        """
+        Calls
+        -----
+        self._resolve_imports
+        """
         return self._resolve_imports[2]
 
     @cached_property
     def resolved_imports(self):
+        """
+        Calls
+        -----
+        self._resolve_imports
+        """
         return self._resolve_imports[1]
 
     @cached_property
     def _annotate(self) -> tuple[natspec.NatspecOutput, vy_ast.Module]:
+        """
+        Calls
+        -----
+        self._resolve_imports
+        """
         module = self._resolve_imports[0]
         analyze_module(module)
         nspec = natspec.parse_natspec(module)
@@ -194,10 +228,20 @@ class CompilerData:
 
     @cached_property
     def natspec(self) -> natspec.NatspecOutput:
+        """
+        Calls
+        -----
+        self._annotate
+        """
         return self._annotate[0]
 
     @cached_property
     def annotated_vyper_module(self) -> vy_ast.Module:
+        """
+        Calls
+        -----
+        self._annotate
+        """
         return self._annotate[1]
 
     @cached_property
@@ -205,6 +249,10 @@ class CompilerData:
         """
         Get the annotated AST, and additionally run the global checks
         required for a compilation target.
+
+        Calls
+        -----
+        self.annotated_vyper_module
         """
         module_t = self.annotated_vyper_module._metadata["type"]
 
@@ -213,6 +261,11 @@ class CompilerData:
 
     @cached_property
     def storage_layout(self) -> StorageLayout:
+        """
+        Calls
+        -----
+        self.compilation_target
+        """
         module_ast = self.compilation_target
         storage_layout = None
         if self.storage_layout_override is not None:
@@ -223,6 +276,13 @@ class CompilerData:
 
     @property
     def global_ctx(self) -> ModuleT:
+        """
+        Calls
+        -----
+        self.storage_layout
+        self.natspec
+        self.annotated_vyper_module
+        """
         # ensure storage layout is computed
         _ = self.storage_layout
         # ensure natspec is computed
@@ -231,21 +291,43 @@ class CompilerData:
 
     @cached_property
     def _ir_output(self):
+        """
+        Calls
+        -----
+        self.global_ctx
+        self.settings
+        """
         # fetch both deployment and runtime IR
         return generate_ir_nodes(self.global_ctx, self.settings)
 
     @property
     def ir_nodes(self) -> IRnode:
+        """
+        Calls
+        -----
+        self._ir_output
+        """
         ir, ir_runtime = self._ir_output
         return ir
 
     @property
     def ir_runtime(self) -> IRnode:
+        """
+        Calls
+        -----
+        self._ir_output
+        """
         ir, ir_runtime = self._ir_output
         return ir_runtime
 
     @property
     def function_signatures(self) -> dict[str, ContractFunctionT]:
+        """
+        Calls
+        -----
+        self._ir_output
+        self.annotated_vyper_module
+        """
         # some metadata gets calculated during codegen, so
         # ensure codegen is run:
         _ = self._ir_output
@@ -255,11 +337,26 @@ class CompilerData:
 
     @cached_property
     def venom_runtime(self):
+        """
+        Calls
+        -----
+        self.ir_runtime
+        self.settings
+        """
         runtime_venom = generate_venom(self.ir_runtime, self.settings)
         return runtime_venom
 
     @cached_property
     def venom_deploytime(self):
+        """
+        Calls
+        -----
+        self.bytecode_runtime (below)
+        self.bytecode_metadata (below)
+        self.compilation_target
+        self.ir_nodes
+        self.settings
+        """
         data_sections = {"runtime_begin": self.bytecode_runtime}
         if self.bytecode_metadata is not None:
             data_sections["cbor_metadata"] = self.bytecode_metadata
@@ -276,6 +373,14 @@ class CompilerData:
 
     @cached_property
     def assembly(self) -> list:
+        """
+        Calls
+        -----
+        self.integrity_sum
+        self.settings
+        self.venom_deploytime
+        self.ir_nodes
+        """
         metadata = None
         if not self.no_bytecode_metadata:
             metadata = bytes.fromhex(self.integrity_sum)
@@ -292,6 +397,14 @@ class CompilerData:
 
     @cached_property
     def bytecode_metadata(self) -> Optional[bytes]:
+        """
+        Calls
+        -----
+        self.assembly_runtime (below)
+        self.compilation_target
+        self.bytecode_runtime
+        self.integrity_sum
+        """
         if self.no_bytecode_metadata:
             return None
 
@@ -308,6 +421,13 @@ class CompilerData:
 
     @cached_property
     def assembly_runtime(self) -> list:
+        """
+        Calls
+        -----
+        self.settings
+        self.venom_runtime
+        self.ir_runtime
+        """
         if self.settings.experimental_codegen:
             assert self.settings.optimize is not None  # mypy hint
             return generate_assembly_experimental(
@@ -318,30 +438,65 @@ class CompilerData:
 
     @cached_property
     def _bytecode(self) -> tuple[bytes, dict[str, Any]]:
+        """
+        Calls
+        -----
+        self.assembly
+        """
         return generate_bytecode(self.assembly)
 
     @property
     def bytecode(self) -> bytes:
+        """
+        Calls
+        -----
+        self._bytecode
+        """
         return self._bytecode[0]
 
     @property
     def source_map(self) -> dict[str, Any]:
+        """
+        Calls
+        -----
+        self._bytecode
+        """
         return self._bytecode[1]
 
     @cached_property
     def _bytecode_runtime(self) -> tuple[bytes, dict[str, Any]]:
+        """
+        Calls
+        -----
+        self.assembly_runtime
+        """
         return generate_bytecode(self.assembly_runtime)
 
     @property
     def bytecode_runtime(self) -> bytes:
+        """
+        Calls
+        -----
+        self._bytecode_runtime
+        """
         return self._bytecode_runtime[0]
 
     @property
     def source_map_runtime(self) -> dict[str, Any]:
+        """
+        Calls
+        -----
+        self._bytecode_runtime
+        """
         return self._bytecode_runtime[1]
 
     @cached_property
     def blueprint_bytecode(self) -> bytes:
+        """
+        Calls
+        -----
+        self.bytecode
+        """
         blueprint_bytecode = ERC5202_PREFIX + self.bytecode
 
         # the length of the deployed code in bytes
