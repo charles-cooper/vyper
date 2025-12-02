@@ -1,7 +1,7 @@
 import copy
 import json
 
-from tests.ast_utils import deepequals
+from tests.ast_utils import deepequals, deepcheck
 from vyper import compiler
 from vyper.ast.nodes import NODE_SRC_ATTRIBUTES
 from vyper.ast.parse import parse_to_ast
@@ -156,6 +156,9 @@ def test() -> int128:
     new_dict = json.loads(out_json)
     new_ast = dict_to_ast(new_dict)
 
+    differences = deepcheck(new_ast, original_ast)
+
+    assert len(differences) == 0, differences
     assert deepequals(new_ast, original_ast)
 
 
