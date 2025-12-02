@@ -156,7 +156,6 @@ class ImportAnalyzer:
     def _add_imports(
         self, import_node: vy_ast.Import | vy_ast.ImportFrom, level: int, module_prefix: str
     ) -> None:
-
         assert "import_infos" not in import_node._metadata
         import_node._metadata["import_infos"] = list()
 

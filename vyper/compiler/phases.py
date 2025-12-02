@@ -123,7 +123,6 @@ class CompilerData:
             to create and return an AST
         """
 
-
         is_vyi = self.contract_path.suffix == ".vyi"
 
         ast = vy_ast.parse_to_ast(
@@ -366,7 +365,6 @@ class CompilerData:
         else:
             return generate_assembly(self.ir_runtime, self.settings.optimize)
 
-    
     @cached_property
     def _bytecode_runtime(self) -> tuple[bytes, dict[str, Any]]:
         """
@@ -417,7 +415,7 @@ class CompilerData:
         return compile_ir.generate_cbor_metadata(
             metadata, runtime_codesize, runtime_data_segment_lengths, immutables_len
         )
-    
+
     @cached_property
     def venom_deploytime(self):
         """
