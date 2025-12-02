@@ -172,6 +172,9 @@ class CompilerData:
     @cached_property
     def _resolve_imports(self):
         """
+        Resolve imports
+        Adds `import_infos` to the metadata of imports (`Import` and `ImportFrom`)
+
         Calls
         -----
         self.vyper_module
