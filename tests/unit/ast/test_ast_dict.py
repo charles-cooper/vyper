@@ -1,7 +1,7 @@
 import copy
 import json
 
-from tests.ast_utils import deepequals, deepcheck
+from tests.ast_utils import deepcheck, deepequals
 from vyper import compiler
 from vyper.ast.nodes import NODE_SRC_ATTRIBUTES
 from vyper.ast.parse import parse_to_ast

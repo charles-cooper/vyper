@@ -57,7 +57,7 @@ def deepcheck(n1: VyperNode, n2: VyperNode, path="") -> list[str]:
         if n1 == n2:
             return []
         else:
-            return [because(f"Nodes are different")]
+            return [because("Nodes are different")]
 
     n1_id = getattr(n1, "node_id", None)
     n2_id = getattr(n2, "node_id", None)
