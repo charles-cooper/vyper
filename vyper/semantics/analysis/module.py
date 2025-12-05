@@ -179,7 +179,7 @@ def _analyze_call_graph(module_ast: vy_ast.Module):
 
 
 # compute reachable set and validate the call graph (detect cycles)
-def _compute_reachable_set(fn_t: ContractFunctionT, path: list[ContractFunctionT] = None) -> None: # TODO: Update with overrides
+def _compute_reachable_set(fn_t: ContractFunctionT, path: list[ContractFunctionT] = None) -> None:
     path = path or []
 
     path.append(fn_t)
