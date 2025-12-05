@@ -112,9 +112,10 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
                 assert abstract_method not in overridden_by
                 overridden_by[abstract_method] = override_method
 
-        
-        # TODO: Where do we store overrides or overridden_by ?
-
+        # Add override to the abstract's metadata
+        for abstract_method, override_method in overridden_by:
+            assert "overridden_by" not in abstract_method._metadata
+            abstract_method._metadata["overridden_by"] = override_method
 
         _analyze_call_graph(module_ast)
         generate_public_variable_getters(module_ast)
@@ -176,7 +177,7 @@ def _analyze_call_graph(module_ast: vy_ast.Module):
 
 
 # compute reachable set and validate the call graph (detect cycles)
-def _compute_reachable_set(fn_t: ContractFunctionT, path: list[ContractFunctionT] = None) -> None:
+def _compute_reachable_set(fn_t: ContractFunctionT, path: list[ContractFunctionT] = None) -> None: # TODO: Update with overrides
     path = path or []
 
     path.append(fn_t)
