@@ -80,6 +80,10 @@ class ContractFunctionT(VyperType):
         enum indicating the external visibility of a function.
     state_mutability : StateMutability
         enum indicating the authority a function has to mutate it's own state.
+    is_abstract : bool
+        Whether this function is abstract
+    overrides: list[vy_ast.Name]
+        Names of the packages that contain a method overridden by this one
     nonreentrant : bool
         Whether this function is marked `@nonreentrant` or not
     """
@@ -96,6 +100,8 @@ class ContractFunctionT(VyperType):
         return_type: Optional[VyperType],
         function_visibility: FunctionVisibility,
         state_mutability: StateMutability,
+        is_abstract: bool,
+        overrides: list[vy_ast.Name],  # TODO: Chose element type
         from_interface: bool = False,
         nonreentrant: bool = False,
         do_raw_return: bool = False,
@@ -109,6 +115,8 @@ class ContractFunctionT(VyperType):
         self.return_type = return_type
         self.visibility = function_visibility
         self.mutability = state_mutability
+        self.is_abstract = is_abstract
+        self.overrides = overrides
         self.nonreentrant = nonreentrant
         self.do_raw_return = do_raw_return
         self.from_interface = from_interface
@@ -250,6 +258,8 @@ class ContractFunctionT(VyperType):
             positional_args,
             [],
             return_type,
+            is_abstract=False,
+            overrides=[],
             from_interface=True,
             function_visibility=FunctionVisibility.EXTERNAL,
             state_mutability=StateMutability.from_abi(abi),
@@ -310,6 +320,8 @@ class ContractFunctionT(VyperType):
             return_type,
             function_visibility,
             state_mutability,
+            is_abstract=False,
+            overrides=[],
             from_interface=True,
             nonreentrant=False,
             ast_def=funcdef,
@@ -383,6 +395,8 @@ class ContractFunctionT(VyperType):
             return_type,
             function_visibility,
             decorators.state_mutability,
+            is_abstract=False,
+            overrides=[],
             from_interface=True,
             nonreentrant=False,
             ast_def=funcdef,
@@ -408,6 +422,9 @@ class ContractFunctionT(VyperType):
         function_visibility = decorators.visibility
         if function_visibility is None:
             function_visibility = FunctionVisibility.INTERNAL
+
+        is_abstract = decorators.is_abstract
+        overrides = decorators.override_nodes
 
         positional_args, keyword_args = _parse_args(funcdef)
 
@@ -494,6 +511,8 @@ class ContractFunctionT(VyperType):
             return_type,
             function_visibility,
             decorators.state_mutability,
+            is_abstract,
+            overrides,
             from_interface=False,
             nonreentrant=nonreentrant,
             do_raw_return=decorators.raw_return,
@@ -540,6 +559,8 @@ class ContractFunctionT(VyperType):
             args,
             [],
             return_type,
+            is_abstract=False,
+            overrides=[],
             from_interface=False,
             function_visibility=FunctionVisibility.EXTERNAL,
             state_mutability=StateMutability.VIEW,
@@ -770,14 +791,17 @@ def _parse_return_type(funcdef: vy_ast.FunctionDef) -> Optional[VyperType]:
 
 @dataclass
 class _ParsedDecorators:
+    override_nodes: List[vy_ast.Name]
     visibility_node: Optional[vy_ast.Name] = None
     state_mutability_node: Optional[vy_ast.Name] = None
     nonreentrant_node: Optional[vy_ast.Name] = None
     raw_return_node: Optional[vy_ast.Name] = None
     reentrant_node: Optional[vy_ast.Name] = None
+    abstract_node: Optional[vy_ast.Name] = None
 
-    def __init__(self, funcdef: vy_ast.FunctionDef):
+    def __init__(self, funcdef: vy_ast.FunctionDef, override_nodes: List[vy_ast.Name]):
         self.funcdef = funcdef
+        self.override_nodes = override_nodes
 
     def set_visibility(self, decorator_node: vy_ast.Name):
         assert FunctionVisibility.is_valid_value(decorator_node.id), "unreachable"
@@ -800,6 +824,35 @@ class _ParsedDecorators:
         assert StateMutability.is_valid_value(decorator_node.id), "unreachable"
         self._check_none(self.state_mutability_node, decorator_node)
         self.state_mutability_node = decorator_node
+
+    def set_abstract(self, decorator_node: vy_ast.Name):
+        if self.abstract_node is not None:
+            raise StructureException(
+                "abstract decorator is already set", self.abstract_node, decorator_node
+            )
+        self.abstract_node = decorator_node
+
+    @property
+    def is_abstract(self) -> bool:
+        return self.abstract_node is not None
+
+    def add_override(self, decorator_node: vy_ast.Name | vy_ast.Call):
+        if isinstance(decorator_node, vy_ast.Name):
+            # TODO: Add a smart hint that takes into account
+            # which modules are initialized with a method of the same name
+            raise StructureException(
+                "override decorator needs a parameter"
+                " (the module containing the method to override)",
+                decorator_node,
+            )
+        num_args = len(decorator_node.args)
+        if num_args != 1:
+            # TODO: Add a smart hint that shows multiple consecutive decorators
+            raise StructureException(
+                f"override decorator takes a single parameter ({num_args} given)", decorator_node
+            )
+
+        self.override_nodes.append(decorator_node.args[0])
 
     @property
     def state_mutability(self) -> StateMutability:
@@ -851,7 +904,8 @@ class _ParsedDecorators:
 
 
 def _parse_decorators(funcdef: vy_ast.FunctionDef) -> _ParsedDecorators:
-    ret = _ParsedDecorators(funcdef)
+    # TODO: Fix needing to pass override_nodes because setting a default value doesn't work
+    ret = _ParsedDecorators(funcdef, override_nodes=[])
 
     for decorator in funcdef.decorator_list:
         # order of precedence for error checking
@@ -869,6 +923,11 @@ def _parse_decorators(funcdef: vy_ast.FunctionDef) -> _ParsedDecorators:
                 ret.set_reentrant(decorator)
             elif decorator.id == "raw_return":
                 ret.set_raw_return(decorator)
+            elif decorator.id == "abstract":
+                ret.set_abstract(decorator)
+            elif decorator.id == "override":
+                # Delegate error reporting to add_override
+                ret.add_override(decorator)
             elif FunctionVisibility.is_valid_value(decorator.id):
                 ret.set_visibility(decorator)
             elif StateMutability.is_valid_value(decorator.id):
@@ -885,7 +944,11 @@ def _parse_decorators(funcdef: vy_ast.FunctionDef) -> _ParsedDecorators:
             )
 
             assert isinstance(decorator.func, vy_ast.Name)
-            if decorator.func.id in decorators_without_parameters:
+
+            if decorator.func.id == "override":
+                ret.add_override(decorator)
+
+            elif decorator.func.id in decorators_without_parameters:
                 msg = "Decorator does not take parameters"
 
                 hint = f"use `@{decorator.func.id}` with no arguments."

@@ -297,7 +297,7 @@ class FunctionAnalyzer(VyperNodeVisitorBase):
         self.vyper_module = vyper_module
         self.fn_node = fn_node
         self.namespace = namespace
-        self.func = fn_node._metadata["func_type"]
+        self.func: ContractFunctionT = fn_node._metadata["func_type"]
         self.expr_visitor = ExprVisitor(self)
 
         self.loop_variables: list[Optional[VarAccess]] = []
@@ -325,7 +325,7 @@ class FunctionAnalyzer(VyperNodeVisitorBase):
             self.visit(node)
 
         if self.func.return_type:
-            if not find_terminating_node(self.fn_node.body):
+            if not find_terminating_node(self.fn_node.body) and not self.func.is_abstract:
                 raise FunctionDeclarationException(
                     f"Missing return statement in function '{self.fn_node.name}'", self.fn_node
                 )
@@ -477,11 +477,24 @@ class FunctionAnalyzer(VyperNodeVisitorBase):
         if for_node is None:
             raise StructureException("`continue` must be enclosed in a `for` loop", node)
 
-    def visit_Expr(self, node):
+    def visit_Expr(self, node: vy_ast.Expr):
         if isinstance(node.value, vy_ast.Ellipsis):
+            func = node.get_ancestor(vy_ast.FunctionDef)
+            if func is None:
+                raise StructureException(
+                    "`...` is only allowed inside method definitions,"
+                    " and only on ones that are either @abstract or in an interface file (`.vyi`)",
+                    node
+                )
+            is_abstract = func._metadata["func_type"].is_abstract
+
+            if is_abstract:
+                return
+
             raise StructureException(
-                "`...` is not allowed in `.vy` files! "
-                "Did you mean to import me as a `.vyi` file?",
+                "`...` is only allowed in abstract methods "
+                "and methods inside interface files (`.vyi`). "
+                "Did you mean to mark me `@abstract` or to import my module as a `.vyi` file?",
                 node,
             )
 
