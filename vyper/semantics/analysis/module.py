@@ -69,6 +69,53 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
         analyzer = ModuleAnalyzer(module_ast, namespace, is_interface)
         analyzer.analyze_module_body()
 
+        import_infos = [
+            import_info
+            for import_node in module_ast.get_children((vy_ast.Import, vy_ast.ImportFrom))
+            for import_info in import_node._metadata["import_infos"]
+        ]
+
+        def get_abstract(module_reference: str, function_name: str) -> ContractFunctionT:
+            
+            modules = [import_info.parsed for import_info in import_infos if import_info.alias == module_reference]
+            assert len(modules) == 1
+            
+            module: vy_ast.Module = modules[0]
+
+            initialized_modules = [initializesDecl._metadata["initializes_info"].module_info.module_node for initializesDecl in module_ast.get_children(vy_ast.InitializesDecl)]
+            if module not in initialized_modules:
+                assert False # TODO: Add error message
+
+            module_t = module._metadata["type"]
+
+            method = module_t.functions[function_name]
+
+            if not method.is_abstract:
+                # TODO: Add error message
+                assert False
+
+            return method
+            
+        funcs = module_ast.get_children(vy_ast.FunctionDef)
+        func_ts = [f._metadata["func_type"] for f in funcs]
+
+        # Mapping from methods to all the methods they override
+        overrides: dict[ContractFunctionT, list[ContractFunctionT]] = {
+            f_t: [get_abstract(o.id, f_t.name) for o in f_t.overrides]
+            for f_t in func_ts if f_t.overrides
+        }
+
+        # Mapping from abstract methods to their override
+        overridden_by: dict[ContractFunctionT, ContractFunctionT] = {}
+        for override_method, abstract_methods in overrides.items():
+            for abstract_method in abstract_methods:
+                assert abstract_method not in overridden_by
+                overridden_by[abstract_method] = override_method
+
+        
+        # TODO: Where do we store overrides or overridden_by ?
+
+
         _analyze_call_graph(module_ast)
         generate_public_variable_getters(module_ast)
 
