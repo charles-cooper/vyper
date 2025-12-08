@@ -53,8 +53,83 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     add all module-level objects to the namespace, type-check/validate
     semantics and annotate with type and analysis info
     """
+    _annotate_overrides(module_ast)
     return _analyze_module_r(module_ast, module_ast.is_interface)
 
+# For each module, the module corresponding to each identifier
+type ImportDict = dict[vy_ast.Module, dict[str, vy_ast.Module]]
+
+def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict = dict()) -> ImportDict:
+    import_infos = [
+        import_info
+        for import_node in module_ast.get_children((vy_ast.Import, vy_ast.ImportFrom))
+        for import_info in import_node._metadata["import_infos"]
+    ]
+
+    assert module_ast not in imports
+    imports[module_ast] = dict()
+
+    local_imports = imports[module_ast]
+
+    for import_info in import_infos:
+        assert import_info.alias not in local_imports
+        local_imports[import_info.alias] = import_info.parsed
+
+        _extract_imports(import_info.parsed, imports)
+
+    return imports
+
+# Returns the (aliased!) names of modules whose method this method overrides 
+def _extract_overrides(func: vy_ast.FunctionDef) -> list[str]:
+    return [
+        decorator.args[0].id
+        for decorator in func.decorator_list
+        if isinstance(decorator, vy_ast.Call) and decorator.func.id == "override"
+    ]
+
+def _is_abstract(func: vy_ast.FunctionDef) -> bool:
+    return any(
+        isinstance(decorator, vy_ast.Name) and decorator.id == "abstract"
+        for decorator in func.decorator_list
+    )
+
+def _get_method(module_ast: vy_ast.Module, name: str) -> vy_ast.FunctionDef:
+    candidates = [
+        func
+        for func in module_ast.get_children(vy_ast.FunctionDef)
+        if func.name == name
+    ]
+    assert len(candidates) == 1
+
+    return candidates[0]
+
+# Adds overridden_by metadata to abstract methods, and perform validity checks
+def _annotate_overrides(root_module: vy_ast.Module) -> None:
+    imports = _extract_imports(root_module)
+    for module_ast in imports:
+        
+        # TODO: Handle cases other than annotation being a vy_ast.Name
+        initialized_modules = [
+            init_decl.annotation.id for init_decl in module_ast.get_children(vy_ast.InitializesDecl)
+        ]
+
+        for func in module_ast.get_children(vy_ast.FunctionDef):
+
+            for other_module_name in _extract_overrides(func):
+                other_module_ast = imports[module_ast][other_module_name]
+                
+                # TODO: Overriding non-initialized module error
+                assert other_module_name in initialized_modules
+
+                other_func = _get_method(other_module_ast, func.name)
+
+                # TODO: Overriding non-abstract method error
+                assert _is_abstract(other_func)
+
+                # TODO: Duplicate override error
+                assert "overridden_by" not in other_func._metadata
+
+                other_func._metadata["overridden_by"] = func
 
 def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
     if "type" in module_ast._metadata:
@@ -68,8 +143,6 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
     with namespace.enter_scope():
         analyzer = ModuleAnalyzer(module_ast, namespace, is_interface)
         analyzer.analyze_module_body()
-
-        _analyze_overrides(module_ast)
 
         _analyze_call_graph(module_ast)
         generate_public_variable_getters(module_ast)
@@ -85,55 +158,6 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
             analyzer.validate_used_modules()
 
     return ret
-
-def _analyze_overrides(module_ast: vy_ast.Module):
-    import_infos = [
-        import_info
-        for import_node in module_ast.get_children((vy_ast.Import, vy_ast.ImportFrom))
-        for import_info in import_node._metadata["import_infos"]
-    ]
-
-    def get_abstract(module_reference: str, function_name: str) -> ContractFunctionT:
-        
-        modules = [import_info.parsed for import_info in import_infos if import_info.alias == module_reference]
-        assert len(modules) == 1
-        
-        module: vy_ast.Module = modules[0]
-
-        initialized_modules = [initializesDecl._metadata["initializes_info"].module_info.module_node for initializesDecl in module_ast.get_children(vy_ast.InitializesDecl)]
-        if module not in initialized_modules:
-            assert False # TODO: Add error message
-
-        module_t = module._metadata["type"]
-
-        method = module_t.functions[function_name]
-
-        if not method.is_abstract:
-            # TODO: Add error message
-            assert False
-
-        return method
-        
-    funcs = module_ast.get_children(vy_ast.FunctionDef)
-    func_ts = [f._metadata["func_type"] for f in funcs]
-
-    # Mapping from methods to all the methods they override
-    overrides: dict[ContractFunctionT, list[ContractFunctionT]] = {
-        f_t: [get_abstract(o.id, f_t.name) for o in f_t.overrides]
-        for f_t in func_ts if f_t.overrides
-    }
-
-    # Mapping from abstract methods to their override
-    overridden_by: dict[ContractFunctionT, ContractFunctionT] = {}
-    for override_method, abstract_methods in overrides.items():
-        for abstract_method in abstract_methods:
-            assert abstract_method not in overridden_by
-            overridden_by[abstract_method] = override_method
-
-    # Add override to the abstract's metadata
-    for abstract_method, override_method in overridden_by.items():
-        assert "overridden_by" not in abstract_method.ast_def._metadata
-        abstract_method.ast_def._metadata["overridden_by"] = override_method
 
 def _analyze_call_graph(module_ast: vy_ast.Module):
     # get list of internal function calls made by each function
