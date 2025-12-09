@@ -76,8 +76,14 @@ def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict = dict()) ->
     local_imports = imports[module_ast]
 
     for import_info in import_infos:
-        assert import_info.alias not in local_imports
+        if import_info.alias in local_imports:
+            # There is a name clash somewhere, but it will be reported later
+            pass
         local_imports[import_info.alias] = import_info.parsed
+        
+        if isinstance(import_info.parsed, list):
+            # It's a json abi, we don't need to recurse as it can import anything
+            continue
 
         _extract_imports(import_info.parsed, imports)
 
@@ -108,6 +114,14 @@ def _get_method(module_ast: vy_ast.Module, name: str) -> vy_ast.FunctionDef:
 
     return candidates[0]
 
+def _module_name_from_initializes_annot(annot: vy_ast.VyperNode) -> str:
+    if isinstance(annot, vy_ast.Name):
+        return annot.id
+    elif isinstance(annot, vy_ast.Subscript):
+        return _module_name_from_initializes_annot(annot.value)
+    assert False
+
+
 # Adds overridden_by metadata to abstract methods, and perform validity checks
 def _annotate_overrides(root_module: vy_ast.Module) -> None:
     imports = _extract_imports(root_module)
@@ -115,7 +129,8 @@ def _annotate_overrides(root_module: vy_ast.Module) -> None:
         
         # TODO: Handle cases other than annotation being a vy_ast.Name
         initialized_modules = [
-            init_decl.annotation.id for init_decl in module_ast.get_children(vy_ast.InitializesDecl)
+            _module_name_from_initializes_annot(init_decl.annotation)
+            for init_decl in module_ast.get_children(vy_ast.InitializesDecl)
         ]
 
         for func in module_ast.get_children(vy_ast.FunctionDef):
