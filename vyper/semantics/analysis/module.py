@@ -53,13 +53,14 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     add all module-level objects to the namespace, type-check/validate
     semantics and annotate with type and analysis info
     """
-    _annotate_overrides(module_ast)
+    imports = _extract_imports(module_ast, dict())
+    _annotate_overrides(imports)
     return _analyze_module_r(module_ast, module_ast.is_interface)
 
 # For each module, the module corresponding to each identifier
 type ImportDict = dict[vy_ast.Module, dict[str, vy_ast.Module]]
 
-def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict = dict()) -> ImportDict:
+def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict) -> ImportDict:
 
     if module_ast in imports:
         # We have already seen this module, skip it
@@ -123,8 +124,7 @@ def _module_name_from_initializes_annot(annot: vy_ast.VyperNode) -> str:
 
 
 # Adds overridden_by metadata to abstract methods, and perform validity checks
-def _annotate_overrides(root_module: vy_ast.Module) -> None:
-    imports = _extract_imports(root_module)
+def _annotate_overrides(imports: ImportDict) -> None:
     for module_ast in imports:
         
         # TODO: Handle cases other than annotation being a vy_ast.Name
