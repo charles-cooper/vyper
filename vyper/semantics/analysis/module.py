@@ -817,7 +817,7 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
     def visit_ImportFrom(self, node):
         self._add_import(node)
 
-    def _add_import(self, node: vy_ast.VyperNode) -> None:
+    def _add_import(self, node: vy_ast.Import | vy_ast.ImportFrom) -> None:
         for import_info in node._metadata["import_infos"]:
             # similar structure to import analyzer
             module_info = self._load_import(import_info)
@@ -826,7 +826,7 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
 
             self.namespace[import_info.alias] = module_info
 
-    def _load_import(self, import_info: ImportInfo) -> Any:
+    def _load_import(self, import_info: ImportInfo) -> ModuleInfo | InterfaceT:
         path = import_info.compiler_input.path
         if path.suffix == ".vy":
             module_ast = import_info.parsed
