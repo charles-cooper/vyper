@@ -80,6 +80,7 @@ def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict = dict()) ->
     return imports
 
 # Returns the (aliased!) names of modules whose method this method overrides 
+# TODO: Check this handles correctly going through an import's import
 def _extract_overrides(func: vy_ast.FunctionDef) -> list[str]:
     return [
         decorator.args[0].id
