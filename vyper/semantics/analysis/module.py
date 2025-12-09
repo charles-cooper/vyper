@@ -60,13 +60,17 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
 type ImportDict = dict[vy_ast.Module, dict[str, vy_ast.Module]]
 
 def _extract_imports(module_ast: vy_ast.Module, imports: ImportDict = dict()) -> ImportDict:
+
+    if module_ast in imports:
+        # We have already seen this module, skip it
+        return imports
+
     import_infos = [
         import_info
         for import_node in module_ast.get_children((vy_ast.Import, vy_ast.ImportFrom))
         for import_info in import_node._metadata["import_infos"]
     ]
 
-    assert module_ast not in imports
     imports[module_ast] = dict()
 
     local_imports = imports[module_ast]
