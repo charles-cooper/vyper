@@ -55,7 +55,10 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     """
     imports = _extract_imports(module_ast, dict())
     _annotate_overrides(imports)
-    return _analyze_module_r(module_ast, module_ast.is_interface)
+    ret = _analyze_module_r(module_ast, module_ast.is_interface)
+    _analyze_call_graph(imports)
+
+    return ret
 
 # For each module, the module corresponding to each identifier
 type ImportDict = dict[vy_ast.Module, dict[str, vy_ast.Module]]
@@ -164,7 +167,6 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
         analyzer = ModuleAnalyzer(module_ast, namespace, is_interface)
         analyzer.analyze_module_body()
 
-        _analyze_call_graph(module_ast)
         generate_public_variable_getters(module_ast)
 
         ret = ModuleT(module_ast)
@@ -178,48 +180,6 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
             analyzer.validate_used_modules()
 
     return ret
-
-def _analyze_call_graph(module_ast: vy_ast.Module):
-    # get list of internal function calls made by each function
-    # CMC 2024-02-03 note: this could be cleaner in analysis/local.py
-    function_defs = module_ast.get_children(vy_ast.FunctionDef)
-
-    for func in function_defs:
-        fn_t = func._metadata["func_type"]
-        assert len(fn_t.called_functions) == 0
-        fn_t.called_functions = OrderedSet()
-
-        function_calls = func.get_descendants(vy_ast.Call)
-
-        for call in function_calls:
-            try:
-                call_t = get_exact_type_from_node(call.func)
-            except VyperException:
-                # there is a problem getting the call type. this might be
-                # an issue, but it will be handled properly later. right now
-                # we just want to be able to construct the call graph.
-                continue
-
-            if isinstance(call_t, ContractFunctionT) and (
-                call_t.is_internal or call_t.is_constructor
-            ):
-                fn_t.called_functions.add(call_t)
-
-    for func in function_defs:
-        fn_t = func._metadata["func_type"]
-
-        # compute reachable set and validate the call graph
-        _compute_reachable_set(fn_t)
-
-        if fn_t.nonreentrant:
-            for g in fn_t.reachable_internal_functions:
-                if g.nonreentrant:
-                    # TODO: improve the error message by displaying the exact
-                    # path through the call graph
-                    msg = f"Cannot call `{g.name}` since it is"
-                    msg += f" `@nonreentrant` and reachable from `{fn_t.name}`"
-                    msg += ", which is also marked `@nonreentrant`"
-                    raise CallViolation(msg, func, g.ast_def)
 
 
 # compute reachable set and validate the call graph (detect cycles)
@@ -880,3 +840,51 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         struct_t = StructT.from_StructDef(node)
         node._metadata["struct_type"] = struct_t
         self.namespace[node.name] = struct_t
+
+
+def _analyze_call_graph(imports: ImportDict) -> None:
+    # First pass: populate called_functions
+    for module_ast in imports:
+
+        function_defs = module_ast.get_children(vy_ast.FunctionDef)
+
+        for func in function_defs:
+            fn_t = func._metadata["func_type"]
+            assert len(fn_t.called_functions) == 0
+            fn_t.called_functions = OrderedSet()
+
+            function_calls = func.get_descendants(vy_ast.Call)
+
+            for call in function_calls:
+                try:
+                    call_t = get_exact_type_from_node(call.func)
+                except VyperException:
+                    # there is a problem getting the call type. this might be
+                    # an issue, but it will be handled properly later. right now
+                    # we just want to be able to construct the call graph.
+                    continue
+
+                if isinstance(call_t, ContractFunctionT) and (
+                    call_t.is_internal or call_t.is_constructor
+                ):
+                    fn_t.called_functions.add(call_t)
+
+    # Second pass: compute reachable sets and validate reentrancy
+    for module_ast in imports:
+        function_defs = module_ast.get_children(vy_ast.FunctionDef)
+
+        for func in function_defs:
+            fn_t = func._metadata["func_type"]
+
+            # compute reachable set and validate the call graph
+            _compute_reachable_set(fn_t)
+
+            if fn_t.nonreentrant:
+                for g in fn_t.reachable_internal_functions:
+                    if g.nonreentrant:
+                        # TODO: improve the error message by displaying the exact
+                        # path through the call graph
+                        msg = f"Cannot call `{g.name}` since it is"
+                        msg += f" `@nonreentrant` and reachable from `{fn_t.name}`"
+                        msg += ", which is also marked `@nonreentrant`"
+                        raise CallViolation(msg, func, g.ast_def)
