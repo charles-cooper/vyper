@@ -271,6 +271,7 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
         # note that we don't just copy the namespace because
         # there are constructor issues.
         _ns.update({k: self.namespace[k] for k in self.namespace._scopes[-1]})  # type: ignore
+        _ns._scopes = self.namespace._scopes.copy()
         self.ast._metadata["namespace"] = _ns
 
     def _visit_nodes_linear(self, node_type):
