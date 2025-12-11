@@ -58,6 +58,8 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     ret = _analyze_module_r(module_ast, module_ast.is_interface)
     _analyze_call_graph(imports)
     _analyze_functions(imports)
+    _validate_exports_uses(imports)
+    _validate_module_semantics(imports)
 
     return ret
 
@@ -173,11 +175,9 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
         ret = ModuleT(module_ast)
         module_ast._metadata["type"] = ret
 
-        # if this is an interface, the function is already validated
-        # in `ContractFunction.from_vyi()`
-        if not is_interface:
-            analyzer.validate_initialized_modules()
-            analyzer.validate_used_modules()
+        # note: validate_initialized_modules and validate_used_modules
+        # are called later in _validate_module_semantics, after function
+        # analysis (so that _expr_info is populated on call nodes)
 
     return ret
 
@@ -636,18 +636,13 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
                 with tag_exceptions(item):  # tag exceptions with specific item
                     self._self_t.typ.add_member(func_t.name, func_t)
 
-                    exported_funcs.append(func_t)
+                    exported_funcs.append((func_t, item))
 
-                    # check module uses
-                    if func_t.uses_state():
-                        module_info = check_module_uses(item)
-
-                        # guaranteed by above checks:
-                        assert module_info is not None
-
-                        used_modules.add(module_info)
-
-        node._metadata["exports_info"] = ExportsInfo(exported_funcs, used_modules)
+        # note: used_modules is populated later in _validate_exports_uses
+        # after call graph analysis (so that uses_state() works correctly)
+        node._metadata["exports_info"] = ExportsInfo([f for f, _ in exported_funcs], used_modules)
+        # store func_t -> item mapping for later validation
+        node._metadata["_exported_funcs_with_items"] = exported_funcs
 
     @property
     def _self_t(self):
@@ -900,3 +895,51 @@ def _analyze_functions(imports: ImportDict) -> None:
 
             with module_ast.namespace():
                 analyze_functions(module_ast) # This requires call graph
+
+
+def _validate_exports_uses(imports: ImportDict) -> None:
+    """
+    Validate that exported functions which use state have proper
+    `uses:` or `initializes:` declarations. This runs after call graph
+    analysis so that `uses_state()` returns correct results.
+    """
+    for module_ast in imports:
+        with module_ast.namespace():
+            for node in module_ast.get_children(vy_ast.ExportsDecl):
+                exports_info = node._metadata["exports_info"]
+                exported_funcs_with_items = node._metadata.get("_exported_funcs_with_items", [])
+
+                for func_t, item in exported_funcs_with_items:
+                    if func_t.uses_state():
+                        module_info = check_module_uses(item)
+                        # guaranteed by earlier checks in visit_ExportsDecl:
+                        assert module_info is not None
+                        exports_info.used_modules.add(module_info)
+
+
+def _validate_module_semantics(imports: ImportDict) -> None:
+    """
+    Run module-level semantic validations that require function analysis
+    to have completed (so _expr_info is available on AST nodes).
+    """
+    for module_ast in imports:
+        if module_ast.is_interface:
+            continue
+
+        module_t = module_ast._metadata["type"]
+        namespace = module_ast._metadata["namespace"]
+
+        # recreate a minimal analyzer to run validations
+        # (we need access to the module's namespace for validate_used_modules)
+        class _Validator:
+            def __init__(self):
+                self.ast = module_ast
+                self.namespace = namespace
+
+        validator = _Validator()
+        # bind the methods from ModuleAnalyzer
+        validator.validate_initialized_modules = ModuleAnalyzer.validate_initialized_modules.__get__(validator)
+        validator.validate_used_modules = ModuleAnalyzer.validate_used_modules.__get__(validator)
+
+        validator.validate_initialized_modules()
+        validator.validate_used_modules()
