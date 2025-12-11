@@ -841,29 +841,30 @@ class ModuleAnalyzer(VyperNodeVisitorBase):
 def _analyze_call_graph(imports: ImportDict) -> None:
     # First pass: populate called_functions
     for module_ast in imports:
+        # need to enter module's namespace to resolve types
+        with module_ast.namespace():
+            function_defs = module_ast.get_children(vy_ast.FunctionDef)
 
-        function_defs = module_ast.get_children(vy_ast.FunctionDef)
+            for func in function_defs:
+                fn_t = func._metadata["func_type"]
+                assert len(fn_t.called_functions) == 0
+                fn_t.called_functions = OrderedSet()
 
-        for func in function_defs:
-            fn_t = func._metadata["func_type"]
-            assert len(fn_t.called_functions) == 0
-            fn_t.called_functions = OrderedSet()
+                function_calls = func.get_descendants(vy_ast.Call)
 
-            function_calls = func.get_descendants(vy_ast.Call)
+                for call in function_calls:
+                    try:
+                        call_t = get_exact_type_from_node(call.func)
+                    except VyperException:
+                        # there is a problem getting the call type. this might be
+                        # an issue, but it will be handled properly later. right now
+                        # we just want to be able to construct the call graph.
+                        continue
 
-            for call in function_calls:
-                try:
-                    call_t = get_exact_type_from_node(call.func)
-                except VyperException:
-                    # there is a problem getting the call type. this might be
-                    # an issue, but it will be handled properly later. right now
-                    # we just want to be able to construct the call graph.
-                    continue
-
-                if isinstance(call_t, ContractFunctionT) and (
-                    call_t.is_internal or call_t.is_constructor
-                ):
-                    fn_t.called_functions.add(call_t)
+                    if isinstance(call_t, ContractFunctionT) and (
+                        call_t.is_internal or call_t.is_constructor
+                    ):
+                        fn_t.called_functions.add(call_t)
 
     # Second pass: compute reachable sets and validate reentrancy
     for module_ast in imports:
@@ -894,7 +895,7 @@ def _analyze_functions(imports: ImportDict) -> None:
         if not is_interface:
 
             with module_ast.namespace():
-                analyze_functions(module_ast) # This requires call graph
+                analyze_functions(module_ast)  # this requires call graph
 
 
 def _validate_exports_uses(imports: ImportDict) -> None:

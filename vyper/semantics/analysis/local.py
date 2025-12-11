@@ -88,7 +88,11 @@ def _analyze_function_r(
     for call_t in func_t.called_functions:
         if isinstance(call_t, ContractFunctionT):
             assert isinstance(call_t.ast_def, vy_ast.FunctionDef)  # help mypy
-            _analyze_function_r(vy_module, call_t.ast_def, err_list)
+            # use the called function's module, not the caller's module
+            callee_module = call_t.ast_def.module_node
+            # enter the callee's namespace context
+            with callee_module.namespace():
+                _analyze_function_r(callee_module, call_t.ast_def, err_list)
 
     namespace = get_namespace()
 
