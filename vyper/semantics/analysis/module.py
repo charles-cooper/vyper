@@ -47,15 +47,19 @@ from vyper.semantics.types.utils import type_from_annotation
 from vyper.utils import OrderedSet
 
 
+# analyze root module
 def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     """
     Analyze a Vyper module AST node, recursively analyze all its imports,
     add all module-level objects to the namespace, type-check/validate
     semantics and annotate with type and analysis info
     """
+    # TODO: use ImportGraph (and maybe refactor it to give us the correct
+    # data structure we want)
     imports = _extract_imports(module_ast, dict())
     _annotate_overrides(imports)
     ret = _analyze_module_r(module_ast, module_ast.is_interface)
+    # shouldn't we analyze call graph
     _analyze_call_graph(imports)
     _analyze_functions(imports)
     _validate_exports_uses(imports)
@@ -918,6 +922,7 @@ def _validate_exports_uses(imports: ImportDict) -> None:
                         exports_info.used_modules.add(module_info)
 
 
+# CMC 2025-12-11 this could conceivably be moved into the global analyzer
 def _validate_module_semantics(imports: ImportDict) -> None:
     """
     Run module-level semantic validations that require function analysis
@@ -930,6 +935,7 @@ def _validate_module_semantics(imports: ImportDict) -> None:
         module_t = module_ast._metadata["type"]
         namespace = module_ast._metadata["namespace"]
 
+        # LOL @ claude, should have made another visitor class
         # recreate a minimal analyzer to run validations
         # (we need access to the module's namespace for validate_used_modules)
         class _Validator:
