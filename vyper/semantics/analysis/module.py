@@ -62,6 +62,8 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     # shouldn't we analyze call graph
     _analyze_call_graph(imports)
     _analyze_functions(imports)
+
+    # these need valid call graph:
     _validate_exports_uses(imports)
     _validate_module_semantics(imports)
 
