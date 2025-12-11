@@ -57,6 +57,7 @@ def analyze_module(module_ast: vy_ast.Module) -> ModuleT:
     _annotate_overrides(imports)
     ret = _analyze_module_r(module_ast, module_ast.is_interface)
     _analyze_call_graph(imports)
+    _analyze_functions(imports)
 
     return ret
 
@@ -175,7 +176,6 @@ def _analyze_module_r(module_ast: vy_ast.Module, is_interface: bool = False):
         # if this is an interface, the function is already validated
         # in `ContractFunction.from_vyi()`
         if not is_interface:
-            analyze_functions(module_ast)
             analyzer.validate_initialized_modules()
             analyzer.validate_used_modules()
 
@@ -889,3 +889,14 @@ def _analyze_call_graph(imports: ImportDict) -> None:
                         msg += f" `@nonreentrant` and reachable from `{fn_t.name}`"
                         msg += ", which is also marked `@nonreentrant`"
                         raise CallViolation(msg, func, g.ast_def)
+
+def _analyze_functions(imports: ImportDict) -> None:
+
+    for module_ast in imports:
+
+        is_interface = module_ast.is_interface
+
+        if not is_interface:
+
+            with module_ast.namespace():
+                analyze_functions(module_ast) # This requires call graph
