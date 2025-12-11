@@ -57,6 +57,7 @@ class Namespace(dict):
         if not self._scopes:
             raise CompilerPanic("Bad use of namespace as a context manager")
         for key in self._scopes.pop():
+            # Since shadowing is forbidden, there is nothing we would need to restore here
             del self[key]
 
     def enter_scope(self):
