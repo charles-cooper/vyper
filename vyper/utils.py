@@ -692,6 +692,21 @@ def safe_relpath(path):
         return path
 
 
+def normalise_path(path):
+    """
+    Normalize a path for serialized output, avoiding leakage of local
+    filesystem info.
+    - Paths under CWD become relative to CWD
+    - Paths outside CWD use just the filename
+    """
+    if path is None:
+        return None
+    rel = safe_relpath(path)
+    if rel.startswith(".."):
+        return os.path.basename(path)
+    return rel
+
+
 def all2(iterator):
     """
     This function checks if all elements in the given `iterable` are truthy,

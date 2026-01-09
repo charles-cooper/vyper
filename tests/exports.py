@@ -1,12 +1,52 @@
 import json
+import os
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Optional, Union
 
 from pytest import FixtureDef, Item
 
 SEP = "__"
+
+
+def _normalise_solc_json(solc_json: dict) -> dict:
+    """
+    Normalize paths in solc_json to avoid leaking local filesystem info.
+    Paths appear as dict keys in 'sources', 'outputSelection', and as
+    values in 'search_paths'.
+    """
+    if solc_json is None:
+        return None
+
+    def normalise_key(key: str) -> str:
+        # Keys are paths like "0/1/2/tmp/pytest-of-user/..." - extract just filename
+        return PurePath(key).name if "/" in key else key
+
+    result = solc_json.copy()
+
+    # Normalize 'sources' keys
+    if "sources" in result:
+        result["sources"] = {
+            normalise_key(k): v for k, v in result["sources"].items()
+        }
+
+    # Normalize 'settings.outputSelection' keys
+    if "settings" in result and "outputSelection" in result["settings"]:
+        result["settings"] = result["settings"].copy()
+        result["settings"]["outputSelection"] = {
+            normalise_key(k): v
+            for k, v in result["settings"]["outputSelection"].items()
+        }
+
+        # Normalize 'settings.search_paths' values
+        if "search_paths" in result["settings"]:
+            result["settings"]["search_paths"] = [
+                PurePath(p).name if "/" in p else p
+                for p in result["settings"]["search_paths"]
+            ]
+
+    return result
 
 # Export path for a module: tests/functional/foo/test_bar.py -> <export_dir>/functional/foo/test_bar
 # All items (tests/fixtures) defined in the same module share an export path (and output JSON).
@@ -220,6 +260,9 @@ class TestExporter:
         )
 
     def trace_deployment(self, **kwargs):
+        # Normalize solc_json paths to avoid leaking local filesystem info
+        if "solc_json" in kwargs:
+            kwargs["solc_json"] = _normalise_solc_json(kwargs["solc_json"])
         self.current_item.traces.append({"trace_type": "deployment", **kwargs})
 
     def trace_call(

@@ -634,7 +634,13 @@ class Module(TopLevel):
     _special_decoders = {"settings": Settings.from_dict}
 
     def to_dict(self):
-        return dict(source_sha256sum=self.source_sha256sum, **super().to_dict())
+        from vyper.utils import normalise_path
+
+        ret = dict(source_sha256sum=self.source_sha256sum, **super().to_dict())
+        # normalize paths to avoid leaking local filesystem info
+        ret["path"] = normalise_path(ret["path"])
+        ret["resolved_path"] = normalise_path(ret["resolved_path"])
+        return ret
 
     @property
     def source_sha256sum(self):

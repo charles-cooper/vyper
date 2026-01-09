@@ -9,7 +9,7 @@ from vyper.exceptions import CompilerPanic, StructureException
 from vyper.semantics.data_locations import DataLocation
 from vyper.semantics.types.base import VyperType
 from vyper.semantics.types.primitives import SelfT
-from vyper.utils import OrderedSet, StringEnum
+from vyper.utils import OrderedSet, StringEnum, normalise_path
 
 if TYPE_CHECKING:
     from vyper.semantics.types.function import ContractFunctionT
@@ -138,8 +138,8 @@ class ImportInfo(AnalysisResult):
         ret = {"alias": self.alias, "qualified_module_name": self.qualified_module_name}
 
         ret["source_id"] = self.compiler_input.source_id
-        ret["path"] = str(self.compiler_input.path)
-        ret["resolved_path"] = str(self.compiler_input.resolved_path)
+        ret["path"] = normalise_path(self.compiler_input.path)
+        ret["resolved_path"] = normalise_path(self.compiler_input.resolved_path)
         ret["file_sha256sum"] = self.compiler_input.sha256sum
 
         return ret

@@ -15,14 +15,14 @@ from vyper.exceptions import VyperException
 from vyper.ir import compile_ir
 from vyper.semantics.types.function import ContractFunctionT, FunctionVisibility, StateMutability
 from vyper.typing import StorageLayout
-from vyper.utils import safe_relpath
+from vyper.utils import normalise_path, safe_relpath
 from vyper.venom.ir_node_to_venom import _pass_via_stack, _returns_word
 from vyper.warnings import ContractSizeLimit, vyper_warn
 
 
 def build_ast_dict(compiler_data: CompilerData) -> dict:
     ast_dict = {
-        "contract_name": str(compiler_data.contract_path),
+        "contract_name": normalise_path(compiler_data.contract_path),
         "ast": ast_to_dict(compiler_data.vyper_module),
     }
     return ast_dict
@@ -46,7 +46,7 @@ def _get_reachable_imports(compiler_data: CompilerData) -> Iterable[vy_ast.Modul
 def build_annotated_ast_dict(compiler_data: CompilerData) -> dict:
     imported_modules = _get_reachable_imports(compiler_data)
     annotated_ast_dict = {
-        "contract_name": str(compiler_data.contract_path),
+        "contract_name": normalise_path(compiler_data.contract_path),
         "ast": ast_to_dict(compiler_data.annotated_vyper_module),
         "imports": [ast_to_dict(ast) for ast in imported_modules],
     }
