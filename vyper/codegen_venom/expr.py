@@ -2021,8 +2021,9 @@ class Expr:
             ok = b.iszero(b.lt(rds, IRLiteral(min_return_size)))
             b.assert_(ok)
 
-            # Copy returndata to buffer and decode
-            b.returndatacopy(buf._ptr, IRLiteral(0), rds)
+            # No returndatacopy needed: staticcall/call already wrote
+            # min(returndatasize, ret_len) bytes to buf._ptr, and
+            # payload_bound caps reads at ret_len (== size_bound()).
 
             # Compute hi bound for decode (prevents overread)
             # Cap at return_abi_size to handle truncation case
@@ -2047,8 +2048,9 @@ class Expr:
             ok = b.iszero(b.lt(rds, IRLiteral(min_return_size)))
             b.assert_(ok)
 
-            # Copy returndata to buffer and decode
-            b.returndatacopy(buf._ptr, IRLiteral(0), rds)
+            # No returndatacopy needed: staticcall/call already wrote
+            # min(returndatasize, ret_len) bytes to buf._ptr, and
+            # payload_bound caps reads at ret_len (== size_bound()).
 
             # Compute hi bound for decode (prevents overread)
             # Cap at return_abi_size to handle truncation case
