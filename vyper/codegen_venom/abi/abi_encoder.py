@@ -161,15 +161,18 @@ def _encode_child(
         _abi_encode_to_buf(ctx, static_loc, child_ptr, child_typ)
     else:
         # Dynamic type:
-        # 1. Write current dyn_ofst to static section
+        # 1. Read current dyn_ofst
         dyn_ofst = ctx.ptr_load(dyn_ofst_val.ptr())
-        b.mstore(static_loc, dyn_ofst)
-
-        # 2. Encode child to dynamic section
+        # 2. Encode child to dynamic section.
+        #    Do this before writing the static offset word so source and
+        #    destination aliasing cannot clobber child source bytes.
         child_dst = b.add(dst, dyn_ofst)
         child_len = _abi_encode_to_buf(ctx, child_dst, child_ptr, child_typ)
 
-        # 3. Update dyn_ofst
+        # 3. Write static section offset.
+        b.mstore(static_loc, dyn_ofst)
+
+        # 4. Update dyn_ofst
         new_dyn_ofst = b.add(dyn_ofst, child_len)
         ctx.ptr_store(dyn_ofst_val.ptr(), new_dyn_ofst)
 
