@@ -28,6 +28,7 @@ from vyper.venom.passes import (
     MemMergePass,
     MemoryCopyElisionPass,
     PhiEliminationPass,
+    ReduceLiteralsCodesize,
     RemoveUnusedVariablesPass,
     RevertToAssert,
     SimplifyCFGPass,
@@ -91,6 +92,7 @@ PASSES_O3: List[PassConfig] = [
     TailMergePass,
     SimplifyCFGPass,
     SingleUseExpansion,
+    ReduceLiteralsCodesize,
     DFTPass,
     CFGNormalization,
 ]
