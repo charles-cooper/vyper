@@ -34,6 +34,9 @@ class _FuncIRInfo:
     func_ir: Optional["InternalFuncIR"] = None
     # For venom codegen: maps kwarg names to alloca IRVariables for sharing between entry points
     kwarg_alloca_vars: Optional[dict[str, "IRVariable"]] = None
+    # For venom codegen: memory args that can be safely passed by reference.
+    # `True` means read-only within the callee under a conservative local analysis.
+    readonly_memory_args: Optional[dict[str, bool]] = None
 
     @property
     def visibility(self):

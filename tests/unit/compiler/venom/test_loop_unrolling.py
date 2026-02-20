@@ -128,7 +128,7 @@ def test_skip_ssa_when_trip_count_exceeds_limit():
     }
     """
 
-    fn = _run_unroll(src)
+    fn = _run_unroll(src, max_full_unroll_iterations=8)
     labels = [bb.label.value for bb in fn.get_basic_blocks()]
     assert "header" in labels
     assert "body" in labels

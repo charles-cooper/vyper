@@ -1528,26 +1528,33 @@ class Expr:
         # By evaluating all args first, we ensure nested calls complete before we
         # allocate staging buffers, avoiding corruption.
         # See legacy codegen: vyper/codegen/self_call.py (contains_self_call handling)
-        arg_vals = []
+        arg_vals: list[VyperValue] = []
         for arg_node in all_arg_nodes:
-            arg_vals.append(Expr(arg_node, self.ctx).lower_value())
+            arg_vals.append(Expr(arg_node, self.ctx).lower())
 
         # Now allocate staging buffers and copy evaluated values
         for i, arg_val in enumerate(arg_vals):
             arg_t = func_t.arguments[i]
+            arg_op = self.ctx.unwrap(arg_val)
 
             if pass_via_stack[arg_t.name]:
                 # Stack-passed arg: use value directly
                 # For struct/tuple types that fit in one word, arg_val is a memory
                 # pointer (from unwrap), so we need to load the actual value
                 if hasattr(arg_t.typ, "tuple_items"):
-                    arg_val = self.builder.mload(arg_val)
-                invoke_args.append(arg_val)
+                    arg_op = self.builder.mload(arg_op)
+                invoke_args.append(arg_op)
             else:
-                # Memory-passed arg: allocate buffer, copy value, pass pointer
-                buf_val = self.ctx.new_temporary_value(arg_t.typ)
-                self.ctx.store_memory(arg_val, buf_val.operand, arg_t.typ)
-                invoke_args.append(buf_val.operand)
+                # For read-only memory parameters, avoid defensive by-value copies.
+                # This matches old-pipeline behavior more closely and significantly
+                # reduces staging mcopy chains in call-heavy code.
+                if self._can_pass_memory_arg_by_ref(func_t, arg_t.name, arg_t.typ, arg_val):
+                    invoke_args.append(arg_val.operand)
+                else:
+                    # Memory-passed arg: allocate buffer, copy value, pass pointer
+                    buf_val = self.ctx.new_temporary_value(arg_t.typ)
+                    self.ctx.store_memory(arg_op, buf_val.operand, arg_t.typ)
+                    invoke_args.append(buf_val.operand)
 
         # Emit invoke instruction
         if returns_count > 0:
@@ -1568,6 +1575,20 @@ class Expr:
             return self._make_ptr_value(return_buf, DataLocation.MEMORY, func_t.return_type)
 
         return VyperValue.from_stack_op(IRLiteral(0), VOID_TYPE)  # void return
+
+    def _can_pass_memory_arg_by_ref(
+        self, func_t: ContractFunctionT, arg_name: str, arg_typ, arg_val: VyperValue
+    ) -> bool:
+        if arg_typ._is_prim_word:
+            return False
+        if arg_val.location != DataLocation.MEMORY:
+            return False
+
+        ir_info = func_t._ir_info
+        if ir_info is None or ir_info.readonly_memory_args is None:
+            return False
+
+        return ir_info.readonly_memory_args.get(arg_name, False)
 
     # === Builtin Function Calls ===
 

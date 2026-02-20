@@ -27,7 +27,7 @@ from vyper.evm.opcodes import version_check
 from vyper.exceptions import CompilerPanic
 from vyper.semantics.data_locations import DataLocation
 from vyper.semantics.types import TupleT, VyperType
-from vyper.semantics.types.function import ContractFunctionT, StateMutability
+from vyper.semantics.types.function import ContractFunctionT, MemberFunctionT, StateMutability
 from vyper.semantics.types.module import ModuleT
 from vyper.utils import OrderedSet, method_id_int
 from vyper.venom.basicblock import IRLabel, IRLiteral, IROperand, IRVariable
@@ -92,6 +92,67 @@ def _init_ir_info(func_t: ContractFunctionT) -> None:
         func_t._ir_info = _FuncIRInfo(func_t)
 
 
+def _root_name(node: vy_ast.VyperNode) -> Optional[str]:
+    if isinstance(node, vy_ast.Name):
+        return node.id
+    if isinstance(node, (vy_ast.Attribute, vy_ast.Subscript)):
+        return _root_name(node.value)
+    return None
+
+
+def _analyze_readonly_memory_args(func_ast: vy_ast.FunctionDef, func_t: ContractFunctionT) -> None:
+    """
+    Compute a conservative map of memory arguments that are read-only in the callee.
+
+    This is used to avoid by-value copies at call sites when we can safely pass
+    a memory pointer directly.
+    """
+    _init_ir_info(func_t)
+    if func_t._ir_info.readonly_memory_args is not None:
+        return
+
+    readonly = {arg.name: (not arg.typ._is_prim_word) for arg in func_t.arguments}
+    readonly = {k: v for k, v in readonly.items() if v}
+    if len(readonly) == 0:
+        func_t._ir_info.readonly_memory_args = {}
+        return
+
+    def _mark_mutated(name: Optional[str]) -> None:
+        if name in readonly:
+            readonly[name] = False
+
+    # Direct writes (assign/augassign/annassign targets).
+    for node in func_ast.get_descendants((vy_ast.Assign, vy_ast.AnnAssign, vy_ast.AugAssign)):
+        lhs = _root_name(node.target)
+        _mark_mutated(lhs)
+
+        # Conservative aliasing: `tmp = arg` means we no longer track writes safely.
+        rhs_node = getattr(node, "value", None)
+        if rhs_node is not None:
+            rhs = _root_name(rhs_node)
+            if rhs in readonly and rhs != lhs:
+                readonly[rhs] = False
+
+    # Conservative call handling:
+    # - member calls on an arg receiver may mutate it (e.g. .append/.pop)
+    # - passing an arg into internal/member calls can let callees mutate it
+    for call in func_ast.get_descendants(vy_ast.Call):
+        call_t = call.func._metadata.get("type")
+
+        if isinstance(call_t, MemberFunctionT) and isinstance(call.func, vy_ast.Attribute):
+            _mark_mutated(_root_name(call.func.value))
+
+        if not isinstance(call_t, (ContractFunctionT, MemberFunctionT)):
+            continue
+
+        for arg in call.args:
+            _mark_mutated(_root_name(arg))
+        for kw in call.keywords:
+            _mark_mutated(_root_name(kw.value))
+
+    func_t._ir_info.readonly_memory_args = readonly
+
+
 # =============================================================================
 # Public API: Two-phase compilation
 # =============================================================================
@@ -110,6 +171,11 @@ def generate_runtime_venom(module_t: ModuleT, settings: Settings) -> IRContext:
     # Find all reachable functions
     reachable = _runtime_reachable_functions(module_t, id_generator)
     function_defs = [fn_t.ast_def for fn_t in reachable]
+
+    # Precompute per-function IR metadata used by call lowering.
+    for func_ast in function_defs:
+        func_t = func_ast._metadata["func_type"]
+        _analyze_readonly_memory_args(func_ast, func_t)
 
     runtime_functions = [f for f in function_defs if not _is_constructor(f)]
     internal_functions = [f for f in runtime_functions if _is_internal(f)]
@@ -201,6 +267,13 @@ def generate_deploy_venom(
         # Assign IDs to reachable internal functions from constructor
         for func_t in init_func_t.reachable_internal_functions:
             id_generator.ensure_id(func_t)
+
+        # Precompute per-function IR metadata used by call lowering.
+        assert isinstance(init_func_t.ast_def, vy_ast.FunctionDef)
+        _analyze_readonly_memory_args(init_func_t.ast_def, init_func_t)
+        for func_t in init_func_t.reachable_internal_functions:
+            assert isinstance(func_t.ast_def, vy_ast.FunctionDef)
+            _analyze_readonly_memory_args(func_t.ast_def, func_t)
 
         # Create shared alloca_id for immutables region
         # This ensures all ctor-context functions use the same memory region
