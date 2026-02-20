@@ -164,9 +164,14 @@ class LoopUnrollingPass(IRPass):
             return None
 
         pre_defs = self._build_local_defs(preheader)
+        # Loop bounds are often materialized in header non-phi instructions
+        # (e.g. `%end = 3`), so evaluate trip-count expressions against both
+        # preheader and header local defs.
+        header_defs = self._build_local_defs(header, include_phi=False)
+        eval_defs = {**pre_defs, **header_defs}
 
-        start_literal = self._try_eval_literal(start_value, pre_defs)
-        end_literal = self._try_eval_literal(end_operand, pre_defs)
+        start_literal = self._try_eval_literal(start_value, eval_defs)
+        end_literal = self._try_eval_literal(end_operand, eval_defs)
 
         exact_trip_count: int | None = None
         max_trip_count: int | None = None
@@ -177,7 +182,7 @@ class LoopUnrollingPass(IRPass):
                 return None
             exact_trip_count = trip_count
         else:
-            max_trip_count = self._try_get_max_trip_bound(preheader, pre_defs, end_operand)
+            max_trip_count = self._try_get_max_trip_bound(preheader, eval_defs, end_operand)
 
         if exact_trip_count is None and max_trip_count is None:
             return None
@@ -367,35 +372,50 @@ class LoopUnrollingPass(IRPass):
             for out in inst.get_outputs():
                 produced[out] = inst
 
-        cond_inst = produced.get(cond_operand)
-        xor_inst: IRInstruction | None = None
+        defs = self._build_local_defs(header)
+        resolved_cond = self._resolve_var(cond_operand, defs)
+        if not isinstance(resolved_cond, IRVariable):
+            return None
+
+        cond_inst = produced.get(resolved_cond)
+        cmp_inst: IRInstruction | None = None
         if cond_inst is None:
             return None
-        if cond_inst.opcode == "xor":
-            xor_inst = cond_inst
+        if cond_inst.opcode in ("xor", "eq"):
+            cmp_inst = cond_inst
         elif (
             cond_inst.opcode == "iszero"
             and len(cond_inst.operands) == 1
-            and isinstance(cond_inst.operands[0], IRVariable)
         ):
-            xor_inst = produced.get(cond_inst.operands[0])
+            inner = self._resolve_var(cond_inst.operands[0], defs)
+            if isinstance(inner, IRVariable):
+                inner_inst = produced.get(inner)
+                if inner_inst is not None and inner_inst.opcode in ("xor", "eq"):
+                    cmp_inst = inner_inst
 
-        if xor_inst is None or xor_inst.opcode != "xor" or len(xor_inst.operands) != 2:
+        if cmp_inst is None or len(cmp_inst.operands) != 2:
             return None
 
-        op1, op2 = xor_inst.operands
-        if op1 == counter_var and op2 != counter_var:
-            return op2
-        if op2 == counter_var and op1 != counter_var:
-            return op1
+        counter_root = self._resolve_var(counter_var, defs)
+        op1_root = self._resolve_var(cmp_inst.operands[0], defs)
+        op2_root = self._resolve_var(cmp_inst.operands[1], defs)
+
+        if op1_root == counter_root and op2_root != counter_root:
+            return op2_root
+        if op2_root == counter_root and op1_root != counter_root:
+            return op1_root
 
         return None
 
-    def _build_local_defs(self, bb: IRBasicBlock) -> dict[IRVariable, IRInstruction]:
+    def _build_local_defs(
+        self, bb: IRBasicBlock, *, include_phi: bool = True
+    ) -> dict[IRVariable, IRInstruction]:
         defs: dict[IRVariable, IRInstruction] = {}
         for inst in bb.instructions:
             if inst.is_bb_terminator:
                 break
+            if not include_phi and inst.opcode == "phi":
+                continue
             for output in inst.get_outputs():
                 defs[output] = inst
         return defs

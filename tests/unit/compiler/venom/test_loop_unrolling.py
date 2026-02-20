@@ -46,6 +46,34 @@ def test_unroll_ssa_exact_trip_count():
     assert any("unroll_body" in label for label in labels)
 
 
+def test_unroll_ssa_eq_condition_with_header_bound_and_assign_chain():
+    src = """
+    function main {
+    entry:
+        %start = 0
+        jmp @header
+    header:
+        %i = phi @entry, %start, @body, %next
+        %i_alias = %i
+        %end_h = 3
+        %done = eq %i_alias, %end_h
+        jnz %done, @exit, @body
+    body:
+        %tmp = add %i, 42
+        %next = add %i, 1
+        jmp @header
+    exit:
+        sink %start
+    }
+    """
+
+    fn = _run_unroll(src)
+    labels = [bb.label.value for bb in fn.get_basic_blocks()]
+    assert "header" not in labels
+    assert "body" not in labels
+    assert any("unroll_body" in label for label in labels)
+
+
 def test_unroll_ssa_zero_trip_count_removes_loop():
     src = """
     function main {
