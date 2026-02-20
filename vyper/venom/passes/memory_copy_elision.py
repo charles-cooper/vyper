@@ -1,4 +1,5 @@
 from collections import deque
+from typing import Tuple
 
 import vyper.evm.address_space as addr_space
 from vyper.venom.analysis import (
@@ -8,7 +9,7 @@ from vyper.venom.analysis import (
     LivenessAnalysis,
     MemoryAliasAnalysis,
 )
-from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRVariable
+from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IROperand, IRVariable
 from vyper.venom.effects import Effects, to_addr_space
 from vyper.venom.memory_location import MemoryLocation
 from vyper.venom.passes.base_pass import IRPass
@@ -22,6 +23,8 @@ _STORES = {"mstore": Effects.MEMORY, "sstore": Effects.STORAGE, "tstore": Effect
 
 # Type alias for copy tracking: maps memory location to the copy instruction
 CopyMap = dict[MemoryLocation, IRInstruction]
+McopySig = Tuple[IROperand, IROperand, IROperand]
+RecentMcopyMap = dict[McopySig, tuple[IRInstruction, MemoryLocation, MemoryLocation]]
 
 
 class MemoryCopyElisionPass(IRPass):
@@ -30,6 +33,8 @@ class MemoryCopyElisionPass(IRPass):
     loads: dict[Effects, dict[IRVariable, tuple[MemoryLocation, IRInstruction]]]
     # For cross-BB analysis: maps BB -> copy state at end of BB
     bb_copies: dict[IRBasicBlock, CopyMap]
+    # Per-basic-block record of recently seen mcopies, keyed by canonicalized operands.
+    recent_mcopies: RecentMcopyMap
 
     def run_pass(self):
         self.base_ptr = self.analyses_cache.request_analysis(BasePtrAnalysis)
@@ -124,6 +129,7 @@ class MemoryCopyElisionPass(IRPass):
         # Clear loads at BB boundary (loads are still per-BB only)
         for e in self.loads.values():
             e.clear()
+        self.recent_mcopies = {}
 
         for inst in bb.instructions:
             if inst.opcode in _LOADS:
@@ -149,16 +155,24 @@ class MemoryCopyElisionPass(IRPass):
                     self.copies[write_loc] = inst
 
             elif inst.opcode == "mcopy":
+                if self._try_elide_redundant_copy(inst):
+                    continue
+
                 self._try_elide_copy(inst)
 
                 write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
                 self._invalidate(write_loc, Effects.MEMORY)
                 if write_loc.is_fixed:
                     self.copies[write_loc] = inst
+                if inst.opcode == "mcopy":
+                    src_loc = self.base_ptr.get_read_location(inst, addr_space.MEMORY)
+                    dst_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
+                    self.recent_mcopies[self._mcopy_signature(inst)] = (inst, src_loc, dst_loc)
 
             elif _volatile_memory(inst):
                 self.copies.clear()
                 self.loads[Effects.MEMORY].clear()
+                self.recent_mcopies.clear()
 
         # Check if state changed
         old_copies = self.bb_copies.get(bb, None)
@@ -172,6 +186,16 @@ class MemoryCopyElisionPass(IRPass):
             self.copies.clear()
         if not write_loc.is_fixed:
             self.loads[eff].clear()
+        if Effects.MEMORY in eff:
+            to_remove_sigs: list[McopySig] = []
+            for sig, (_, src_loc, dst_loc) in self.recent_mcopies.items():
+                if self.mem_alias.may_alias(dst_loc, write_loc):
+                    to_remove_sigs.append(sig)
+                    continue
+                if self.mem_alias.may_alias(src_loc, write_loc):
+                    to_remove_sigs.append(sig)
+            for sig in to_remove_sigs:
+                del self.recent_mcopies[sig]
 
         if Effects.MEMORY in eff:
             to_remove = []
@@ -231,6 +255,47 @@ class MemoryCopyElisionPass(IRPass):
 
         inst.opcode = previous.opcode
         inst.operands[1] = src
+
+    def _try_elide_redundant_copy(self, inst: IRInstruction) -> bool:
+        """
+        Elide mcopy when destination is already known to contain the same bytes.
+
+        This catches repeated idempotent copies such as:
+          mcopy dst, src, N
+          ... only reads / non-aliasing writes ...
+          mcopy dst, src, N
+
+        Reads from dst do not invalidate copy facts, so this remains valid
+        as long as neither src nor dst was clobbered in between.
+        """
+        assert inst.opcode == "mcopy"
+
+        write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
+        previous = self.copies.get(write_loc)
+        if previous is not None and self._copies_equivalent(previous, inst):
+            self.updater.nop(inst)
+            return True
+
+        # Fallback for non-fixed locations: use canonicalized operand tuple
+        # and require that no aliasing memory writes happened since the
+        # previous mcopy (tracked by _invalidate).
+        sig = self._mcopy_signature(inst)
+        if sig in self.recent_mcopies:
+            self.updater.nop(inst)
+            return True
+
+        return False
+
+    def _mcopy_signature(self, inst: IRInstruction) -> McopySig:
+        assert inst.opcode == "mcopy"
+        size, src, dst = inst.operands
+        if isinstance(size, IRVariable):
+            size = self.dfg._traverse_assign_chain(size)
+        if isinstance(src, IRVariable):
+            src = self.dfg._traverse_assign_chain(src)
+        if isinstance(dst, IRVariable):
+            dst = self.dfg._traverse_assign_chain(dst)
+        return size, src, dst
 
     def _try_elide_load_store(self, inst: IRInstruction, write_loc: MemoryLocation, eff: Effects):
         val = inst.operands[0]
