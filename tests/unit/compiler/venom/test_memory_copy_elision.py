@@ -126,6 +126,32 @@ def test_mcopy_redundant_elimination():
     _check_pre_post(pre, post)
 
 
+def test_repeated_mcopy_elision_with_intermediate_reads():
+    if not version_check(begin="cancun"):
+        return
+
+    pre = """
+    _global:
+        mcopy 200, 100, 32
+        %1 = mload 200
+        mcopy 200, 100, 32
+        %2 = mload 200
+        %3 = add %1, %2
+        sink %3
+    """
+
+    post = """
+    _global:
+        mcopy 200, 100, 32
+        %1 = mload 200
+        nop  ; mcopy 200, 100, 32              [memory copy elision - redundant repeated mcopy]
+        %2 = mload 200
+        %3 = add %1, %2
+        sink %3
+    """
+    _check_pre_post(pre, post)
+
+
 def test_no_elision_with_intermediate_write():
     """
     Test that copy elision doesn't happen if there's an intermediate write
@@ -933,6 +959,35 @@ def test_same_alloca_redundant():
         %a1 = alloca 64
         nop
         stop
+    """
+    _check_pre_post(pre, post)
+
+
+def test_repeated_alloca_mcopy_with_intermediate_reads():
+    if not version_check(begin="cancun"):
+        return
+
+    pre = """
+    _global:
+        %a1 = alloca 64
+        %a2 = alloca 64
+        mcopy %a2, %a1, 64
+        %1 = mload %a2
+        mcopy %a2, %a1, 64
+        %2 = mload %a2
+        %3 = add %1, %2
+        sink %3
+    """
+    post = """
+    _global:
+        %a1 = alloca 64
+        %a2 = alloca 64
+        mcopy %a2, %a1, 64
+        %1 = mload %a2
+        nop
+        %2 = mload %a2
+        %3 = add %1, %2
+        sink %3
     """
     _check_pre_post(pre, post)
 
