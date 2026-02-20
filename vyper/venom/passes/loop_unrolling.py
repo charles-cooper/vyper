@@ -8,7 +8,7 @@ from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRLabel, IRLiter
 from vyper.venom.effects import Effects
 from vyper.venom.passes.base_pass import IRPass
 
-MAX_FULL_UNROLL_ITERATIONS = 8
+MAX_FULL_UNROLL_ITERATIONS = 16
 
 
 @dataclass(frozen=True)
