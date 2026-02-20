@@ -41,7 +41,7 @@ PASSES_O3: List[PassConfig] = [
     FloatAllocas,
     SimplifyCFGPass,
     MakeSSA,
-    LoopUnrollingPass,
+    (LoopUnrollingPass, {"require_size_reduction": True, "consider_elision_benefit": True}),
     PhiEliminationPass,
     AlgebraicOptimizationPass,
     SCCP,

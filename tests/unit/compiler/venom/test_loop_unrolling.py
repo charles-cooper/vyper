@@ -8,11 +8,11 @@ from vyper.venom.passes import LoopUnrollingPass
 pytestmark = pytest.mark.hevm
 
 
-def _run_unroll(source: str):
+def _run_unroll(source: str, **kwargs):
     ctx = parse_venom(source)
     fn = next(iter(ctx.functions.values()))
     ac = IRAnalysesCache(fn)
-    LoopUnrollingPass(ac, fn).run_pass()
+    LoopUnrollingPass(ac, fn).run_pass(**kwargs)
     check_venom_ctx(ctx)
     return fn
 
@@ -225,3 +225,125 @@ def test_non_ssa_loop_is_not_unrolled():
     assert "body" in labels
     assert "incr" in labels
     assert not any("unroll_" in label for label in labels)
+
+
+def test_size_reduction_mode_skips_unprofitable_exact_unroll():
+    src = """
+    function main {
+    entry:
+        %start = 0
+        %trip = 3
+        %end = add %start, %trip
+        jmp @header
+    header:
+        %i = phi @entry, %start, @body, %next
+        %cmp = xor %i, %end
+        %done = iszero %cmp
+        jnz %done, @exit, @body
+    body:
+        %tmp = add %i, 42
+        %next = add %i, 1
+        jmp @header
+    exit:
+        sink %trip
+    }
+    """
+
+    fn = _run_unroll(src, require_size_reduction=True)
+    labels = [bb.label.value for bb in fn.get_basic_blocks()]
+    assert "header" in labels
+    assert "body" in labels
+    assert not any("unroll_body" in label for label in labels)
+
+
+def test_size_reduction_mode_allows_profitable_exact_unroll():
+    src = """
+    function main {
+    entry:
+        %start = 0
+        %trip = 1
+        %end = add %start, %trip
+        jmp @header
+    header:
+        %i = phi @entry, %start, @body, %next
+        %cmp = xor %i, %end
+        %done = iszero %cmp
+        jnz %done, @exit, @body
+    body:
+        %tmp = add %i, 42
+        %next = add %i, 1
+        jmp @header
+    exit:
+        sink %trip
+    }
+    """
+
+    fn = _run_unroll(src, require_size_reduction=True)
+    labels = [bb.label.value for bb in fn.get_basic_blocks()]
+    assert "header" not in labels
+    assert "body" not in labels
+    assert any("unroll_body" in label for label in labels)
+
+
+def test_size_reduction_mode_skips_guarded_unroll():
+    src = """
+    function main {
+    entry:
+        %start = 0
+        %trip = source
+        %ok_bound = lt 3, %trip
+        %bound_check = iszero %ok_bound
+        assert %bound_check
+        %end = add %start, %trip
+        jmp @header
+    header:
+        %i = phi @entry, %start, @body, %next
+        %cmp = xor %i, %end
+        %done = iszero %cmp
+        jnz %done, @exit, @body
+    body:
+        %tmp = add %i, 7
+        %next = add %i, 1
+        jmp @header
+    exit:
+        sink %trip
+    }
+    """
+
+    fn = _run_unroll(src, require_size_reduction=True)
+    labels = [bb.label.value for bb in fn.get_basic_blocks()]
+    assert "header" in labels
+    assert "body" in labels
+    assert not any("unroll_" in label for label in labels)
+
+
+def test_size_reduction_mode_allows_elision_aware_unroll():
+    src = """
+    function main {
+    entry:
+        %start = 0
+        %trip = 2
+        %end = add %start, %trip
+        jmp @header
+    header:
+        %i = phi @entry, %start, @body, %next
+        %cmp = xor %i, %end
+        %done = iszero %cmp
+        jnz %done, @exit, @body
+    body:
+        %dst = 64
+        %src = 32
+        %len = 32
+        mcopy %dst, %src, %len
+        %next = add %i, 1
+        jmp @header
+    exit:
+        sink %trip
+    }
+    """
+
+    fn = _run_unroll(src, require_size_reduction=True, consider_elision_benefit=True)
+    labels = [bb.label.value for bb in fn.get_basic_blocks()]
+    assert "header" not in labels
+    assert "body" not in labels
+    assert any("unroll_body" in label for label in labels)

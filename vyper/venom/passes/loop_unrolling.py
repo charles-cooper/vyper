@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from vyper.venom.analysis import CFGAnalysis, DFGAnalysis
+from vyper.evm.address_space import MEMORY
+from vyper.venom.analysis import BasePtrAnalysis, CFGAnalysis, DFGAnalysis, MemoryAliasAnalysis
 from vyper.venom.basicblock import IRBasicBlock, IRInstruction, IRLabel, IRLiteral, IROperand, IRVariable
+from vyper.venom.effects import Effects
 from vyper.venom.passes.base_pass import IRPass
 
 MAX_FULL_UNROLL_ITERATIONS = 8
@@ -37,9 +39,19 @@ class LoopUnrollingPass(IRPass):
 
     required_successors = ("SimplifyCFGPass",)
 
-    def run_pass(self, /, max_full_unroll_iterations: int = MAX_FULL_UNROLL_ITERATIONS) -> None:
+    def run_pass(
+        self,
+        /,
+        max_full_unroll_iterations: int = MAX_FULL_UNROLL_ITERATIONS,
+        require_size_reduction: bool = False,
+        consider_elision_benefit: bool = False,
+    ) -> None:
         if max_full_unroll_iterations <= 0:
             return
+
+        if consider_elision_benefit:
+            self.base_ptr = self.analyses_cache.force_analysis(BasePtrAnalysis)
+            self.mem_alias = self.analyses_cache.force_analysis(MemoryAliasAnalysis)
 
         changed = False
         # Recompute CFG after each rewrite so subsequent matches use fresh topology.
@@ -60,6 +72,10 @@ class LoopUnrollingPass(IRPass):
                 if exact_trip_count is not None:
                     if exact_trip_count > max_full_unroll_iterations:
                         continue
+                    if require_size_reduction and not self._is_exact_unroll_size_profitable(
+                        ssa_loop, exact_trip_count, consider_elision_benefit=consider_elision_benefit
+                    ):
+                        continue
                     self._unroll_ssa_exact(ssa_loop, exact_trip_count)
                     rewritten = True
                     changed = True
@@ -67,6 +83,10 @@ class LoopUnrollingPass(IRPass):
 
                 max_trip_count = ssa_loop.max_trip_count
                 if max_trip_count is None or max_trip_count > max_full_unroll_iterations:
+                    continue
+                if require_size_reduction:
+                    # Guarded unrolling duplicates condition + body skeleton for each
+                    # max iteration and is generally not size-friendly.
                     continue
 
                 self._unroll_ssa_guarded(ssa_loop, max_trip_count)
@@ -80,6 +100,103 @@ class LoopUnrollingPass(IRPass):
         if changed:
             self.analyses_cache.invalidate_analysis(CFGAnalysis)
             self.analyses_cache.invalidate_analysis(DFGAnalysis)
+        if consider_elision_benefit:
+            # These analyses are only needed for local profitability checks.
+            # Drop them so later passes recompute from fresh IR.
+            self.analyses_cache.invalidate_analysis(MemoryAliasAnalysis)
+            self.analyses_cache.invalidate_analysis(BasePtrAnalysis)
+
+    def _is_exact_unroll_size_profitable(
+        self, loop: _SSALoopShape, trip_count: int, *, consider_elision_benefit: bool = False
+    ) -> bool:
+        if trip_count == 0:
+            return True
+        old_cost = loop.header.code_size_cost + loop.body.code_size_cost
+        new_cost = trip_count * loop.body.code_size_cost
+        if new_cost < old_cost:
+            return True
+        if not consider_elision_benefit:
+            return False
+
+        estimated_elision_savings = self._estimate_mcopy_elision_savings(loop, trip_count)
+        return new_cost - estimated_elision_savings < old_cost
+
+    def _estimate_mcopy_elision_savings(self, loop: _SSALoopShape, trip_count: int) -> int:
+        if trip_count <= 1:
+            return 0
+
+        body_insts = list(loop.body.instructions[:-1])
+        if len(body_insts) == 0:
+            return 0
+
+        # Track values that can vary across iterations (dataflow from phi).
+        variant: set[IRVariable] = {loop.phi.output}
+        local_defs: dict[IRVariable, IRInstruction] = {}
+        local_uses: dict[IRVariable, int] = {}
+
+        for inst in body_insts:
+            if any(isinstance(op, IRVariable) and op in variant for op in inst.operands):
+                for out in inst.get_outputs():
+                    variant.add(out)
+            for op in inst.operands:
+                if isinstance(op, IRVariable):
+                    local_uses[op] = local_uses.get(op, 0) + 1
+            for out in inst.get_outputs():
+                local_defs[out] = inst
+
+        memory_writes = [inst for inst in body_insts if Effects.MEMORY in inst.get_write_effects()]
+        if len(memory_writes) == 0:
+            return 0
+
+        per_iter_savings = 0
+
+        for inst in body_insts:
+            if inst.opcode != "mcopy":
+                continue
+
+            # Only account for loop-invariant signatures; otherwise each iteration
+            # may produce distinct copies that are not elidable.
+            if any(isinstance(op, IRVariable) and op in variant for op in inst.operands):
+                continue
+
+            src_loc = self.base_ptr.get_read_location(inst, MEMORY)
+            dst_loc = self.base_ptr.get_write_location(inst, MEMORY)
+
+            # If we cannot reason about locations, be conservative.
+            if src_loc.is_volatile or dst_loc.is_volatile:
+                continue
+
+            interferes = False
+            for w in memory_writes:
+                if w is inst:
+                    continue
+                wloc = self.base_ptr.get_write_location(w, MEMORY)
+                if wloc.is_volatile:
+                    interferes = True
+                    break
+                if self.mem_alias.may_alias(wloc, src_loc) or self.mem_alias.may_alias(wloc, dst_loc):
+                    interferes = True
+                    break
+            if interferes:
+                continue
+
+            # Removing a repeated mcopy often lets its immediate setup assigns die.
+            setup_savings = 0
+            for op in inst.operands:
+                if not isinstance(op, IRVariable):
+                    continue
+                def_inst = local_defs.get(op)
+                if def_inst is None:
+                    continue
+                if def_inst.opcode != "assign":
+                    continue
+                if local_uses.get(op, 0) != 1:
+                    continue
+                setup_savings += def_inst.code_size_cost
+
+            per_iter_savings += inst.code_size_cost + setup_savings
+
+        return (trip_count - 1) * per_iter_savings
 
     def _match_ssa_loop(
         self, cfg: CFGAnalysis, dfg: DFGAnalysis, header: IRBasicBlock
