@@ -190,9 +190,7 @@ class Stmt:
             # DynArray special case: only copy length + actual elements, not full capacity.
             # This matches legacy codegen behavior (core.py:_dynarray_make_setter).
             if isinstance(typ, DArrayT):
-                self._copy_dynarray_to_storage(
-                    src, dst_ptr.operand, typ, transient=False
-                )
+                self._copy_dynarray_to_storage(src, dst_ptr.operand, typ, transient=False)
             elif typ.storage_size_in_words == 1:
                 val = self.builder.mload(src)
                 self.builder.sstore(dst_ptr.operand, val)
@@ -201,9 +199,7 @@ class Stmt:
         elif dst_ptr.location == DataLocation.TRANSIENT:
             # DynArray special case for transient storage
             if isinstance(typ, DArrayT):
-                self._copy_dynarray_to_storage(
-                    src, dst_ptr.operand, typ, transient=True
-                )
+                self._copy_dynarray_to_storage(src, dst_ptr.operand, typ, transient=True)
             elif typ.storage_size_in_words == 1:
                 val = self.builder.mload(src)
                 self.builder.tstore(dst_ptr.operand, val)
