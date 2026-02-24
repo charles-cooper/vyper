@@ -39,6 +39,9 @@ class IRFunction:
     last_variable: int
     _basic_block_dict: dict[str, IRBasicBlock]
 
+    # Indices of invoke args that are read-only memory pointers
+    _readonly_memory_invoke_arg_idxs: tuple
+
     # Used during code generation
     _ast_source_stack: list[IRnode]
     _error_msg_stack: list[Optional[str]]
@@ -51,6 +54,8 @@ class IRFunction:
         self._basic_block_dict = {}
 
         self.last_variable = 0
+
+        self._readonly_memory_invoke_arg_idxs = ()
 
         self._ast_source_stack = []
         self._error_msg_stack = []

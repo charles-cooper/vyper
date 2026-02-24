@@ -1545,16 +1545,11 @@ class Expr:
                     arg_op = self.builder.mload(arg_op)
                 invoke_args.append(arg_op)
             else:
-                # For read-only memory parameters, avoid defensive by-value copies.
-                # This matches old-pipeline behavior more closely and significantly
-                # reduces staging mcopy chains in call-heavy code.
-                if self._can_pass_memory_arg_by_ref(func_t, arg_t.name, arg_t.typ, arg_val):
-                    invoke_args.append(arg_val.operand)
-                else:
-                    # Memory-passed arg: allocate buffer, copy value, pass pointer
-                    buf_val = self.ctx.new_temporary_value(arg_t.typ)
-                    self.ctx.store_memory(arg_op, buf_val.operand, arg_t.typ)
-                    invoke_args.append(buf_val.operand)
+                # Memory-passed arg: allocate buffer, copy value, pass pointer.
+                # Backend passes can forward safe readonly arguments.
+                buf_val = self.ctx.new_temporary_value(arg_t.typ)
+                self.ctx.store_memory(arg_op, buf_val.operand, arg_t.typ)
+                invoke_args.append(buf_val.operand)
 
         # Emit invoke instruction
         if returns_count > 0:
@@ -1575,33 +1570,6 @@ class Expr:
             return self._make_ptr_value(return_buf, DataLocation.MEMORY, func_t.return_type)
 
         return VyperValue.from_stack_op(IRLiteral(0), VOID_TYPE)  # void return
-
-    def _can_pass_memory_arg_by_ref(
-        self, func_t: ContractFunctionT, arg_name: str, arg_typ, arg_val: VyperValue
-    ) -> bool:
-        """Check whether a memory argument can be passed by reference.
-
-        Returns True when the callee is known to never mutate the argument
-        (determined by `_analyze_readonly_memory_args` in module.py) and the
-        value already resides in memory.  Passing by reference avoids an
-        intermediate by-value mcopy into a staging buffer, which is a
-        significant win in call-heavy code.
-
-        Safety: the callee receives the same pointer the caller holds.
-        Because the argument is read-only inside the callee and internal
-        calls are synchronous (the callee completes before the caller
-        resumes), no concurrent mutation can occur.
-        """
-        if arg_typ._is_prim_word:
-            return False
-        if arg_val.location != DataLocation.MEMORY:
-            return False
-
-        ir_info = func_t._ir_info
-        if ir_info is None or ir_info.readonly_memory_args is None:
-            return False
-
-        return ir_info.readonly_memory_args.get(arg_name, False)
 
     # === Builtin Function Calls ===
 

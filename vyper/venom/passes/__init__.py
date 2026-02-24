@@ -12,6 +12,7 @@ from .fix_calloca import FixCalloca
 from .fix_mem_locations import FixMemLocationsPass
 from .float_allocas import FloatAllocas
 from .function_inliner import FunctionInlinerPass
+from .invoke_arg_copy_forwarding import InvokeArgCopyForwardingPass
 from .literals_codesize import ReduceLiteralsCodesize
 from .load_elimination import LoadElimination
 from .lower_dload import LowerDloadPass

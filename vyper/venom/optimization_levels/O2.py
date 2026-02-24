@@ -19,6 +19,7 @@ from vyper.venom.passes import (
     DFTPass,
     FixMemLocationsPass,
     FloatAllocas,
+    InvokeArgCopyForwardingPass,
     LoadElimination,
     LowerDloadPass,
     MakeSSA,
@@ -56,6 +57,7 @@ PASSES_O2: List[PassConfig] = [
     AssignElimination,
     RevertToAssert,
     SimplifyCFGPass,
+    InvokeArgCopyForwardingPass,
     # run memmerge before LowerDload
     MemMergePass,
     LowerDloadPass,

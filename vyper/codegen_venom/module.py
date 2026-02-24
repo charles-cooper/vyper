@@ -33,6 +33,7 @@ from vyper.utils import OrderedSet, method_id_int
 from vyper.venom.basicblock import IRLabel, IRLiteral, IROperand, IRVariable
 from vyper.venom.builder import VenomBuilder
 from vyper.venom.context import IRContext
+from vyper.venom.function import IRFunction
 from vyper.venom.memory_location import Allocation
 
 from .context import Constancy, VenomCodegenContext
@@ -104,8 +105,8 @@ def _analyze_readonly_memory_args(func_ast: vy_ast.FunctionDef, func_t: Contract
     """
     Compute a conservative map of memory arguments that are read-only in the callee.
 
-    This is used to avoid by-value copies at call sites when we can safely pass
-    a memory pointer directly (see `_can_pass_memory_arg_by_ref` in expr.py).
+    This is used to tag readonly memory parameters so backend passes can
+    safely forward invoke arguments through staging copies.
 
     The analysis is intentionally conservative — an argument is only marked
     read-only if ALL of the following hold:
@@ -168,6 +169,32 @@ def _analyze_readonly_memory_args(func_ast: vy_ast.FunctionDef, func_t: Contract
             _mark_mutated(_root_name(kw.value))
 
     func_t._ir_info.readonly_memory_args = readonly
+
+
+def _set_internal_fn_readonly_invoke_arg_metadata(
+    fn: IRFunction, func_t: ContractFunctionT, pass_via_stack: dict[str, bool], returns_count: int
+) -> None:
+    """
+    Attach callee metadata used by backend invoke-arg forwarding.
+
+    The stored indices are relative to invoke stack args (excluding label),
+    matching the operand layout produced by `builder.invoke`.
+    """
+    ir_info = func_t._ir_info
+    readonly_map = ir_info.readonly_memory_args if ir_info is not None else None
+    if readonly_map is None:
+        fn._readonly_memory_invoke_arg_idxs = ()
+        return
+
+    arg_offset = 1 if func_t.return_type is not None and returns_count == 0 else 0
+    readonly_invoke_arg_idxs = []
+    for i, arg in enumerate(func_t.arguments):
+        if pass_via_stack[arg.name]:
+            continue
+        if readonly_map.get(arg.name, False):
+            readonly_invoke_arg_idxs.append(arg_offset + i)
+
+    fn._readonly_memory_invoke_arg_idxs = tuple(readonly_invoke_arg_idxs)
 
 
 # =============================================================================
@@ -1401,6 +1428,7 @@ def _generate_internal_function(
     # Set up return handling
     pass_via_stack = codegen_ctx.pass_via_stack(func_t)
     returns_count = codegen_ctx.returns_stack_count(func_t)
+    _set_internal_fn_readonly_invoke_arg_metadata(fn, func_t, pass_via_stack, returns_count)
 
     # Handle parameters
     # First: return buffer pointer if memory return

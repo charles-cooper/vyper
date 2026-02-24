@@ -163,10 +163,10 @@ def _encode_child(
         # Dynamic type:
         #
         # Ordering invariant: encode child data BEFORE writing the static
-        # offset word.  When a memory argument is passed by reference
-        # (see `_can_pass_memory_arg_by_ref`), `child_ptr` may alias the
-        # destination buffer.  In particular `static_loc` can point into
-        # the same region as `child_ptr`.  Writing the offset word first
+        # offset word. Backend invoke-arg forwarding may pass references
+        # directly, so `child_ptr` may alias the destination buffer.
+        # In particular `static_loc` can point into the same region as
+        # `child_ptr`. Writing the offset word first
         # would clobber source bytes that `_abi_encode_to_buf` still
         # needs to read, producing corrupt output.
         #
