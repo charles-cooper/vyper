@@ -103,7 +103,8 @@ class Stmt:
             return False
         if not (call_t.is_internal or call_t.is_constructor):
             return False
-        if call_t.return_type is None or call_t.return_type != ltyp:
+        assert call_t.return_type is not None  # guaranteed by type checker
+        if call_t.return_type != ltyp:
             return False
 
         rhs_vv = Expr(value_node, self.ctx).lower()
