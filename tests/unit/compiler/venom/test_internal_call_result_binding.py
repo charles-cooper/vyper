@@ -142,6 +142,37 @@ def foo() -> uint256:
     assert invoke_root in mcopy_dst_roots
 
 
+def test_non_return_invoke_source_copy_is_not_forwarded():
+    code = """
+@internal
+def _touch(a: uint256[2]):
+    a[0] = 99
+
+@internal
+def _driver() -> uint256:
+    x: uint256[2] = [1, 2]
+    self._touch(x)
+    y: uint256[2] = x
+    x[0] = 7
+    return y[0]
+
+@external
+def foo() -> uint256:
+    return self._driver()
+    """
+
+    settings = Settings(experimental_codegen=True, optimize=OptimizationLevel.O3)
+    settings.venom_flags = VenomOptimizationFlags(level=OptimizationLevel.O3, disable_inlining=True)
+
+    ctx = compile_code(code, settings=settings, output_formats=["ir_runtime"])["ir_runtime"]
+
+    driver_fn = next(fn for fn in ctx.functions.values() if "_driver" in str(fn.name))
+    opcodes = [inst.opcode for bb in driver_fn.get_basic_blocks() for inst in bb.instructions]
+
+    # Copy from x into y must remain because x is mutated afterwards.
+    assert "mcopy" in opcodes
+
+
 def test_readonly_propagates_transitively_across_internal_calls():
     code = """
 @internal

@@ -59,8 +59,7 @@ class Stmt:
 
         Example: `x: uint256 = 5`
 
-        For complex internal-call results, we can bind directly to the call's
-        return buffer. Otherwise we allocate local memory and store RHS into it.
+        Allocate local memory and store RHS into it.
         """
         node = self.node
         assert isinstance(node, vy_ast.AnnAssign)
@@ -69,13 +68,6 @@ class Stmt:
 
         # AnnAssign always has a value in Vyper (semantic analysis ensures this)
         assert node.value is not None
-
-        # For fresh local declarations initialized from internal call results,
-        # bind directly to the call's return buffer instead of copying.
-        if not ltyp._is_prim_word and self._try_bind_annassign_internal_call_result(
-            node.value, varname, ltyp
-        ):
-            return
 
         # Allocate memory for the new variable
         var = self.ctx.new_variable(varname, ltyp)
@@ -90,31 +82,6 @@ class Stmt:
         else:
             # AnnAssign destination is a fresh allocation: no overlap possible.
             self._store_complex_type(rhs, var.value.ptr(), ltyp)
-
-    def _try_bind_annassign_internal_call_result(
-        self, value_node: vy_ast.VyperNode, varname: str, ltyp
-    ) -> bool:
-        """Bind `x: T = self.foo(...)` directly to foo's return buffer when possible."""
-        if not isinstance(value_node, vy_ast.Call):
-            return False
-
-        call_t = value_node.func._metadata.get("type")
-        if not isinstance(call_t, ContractFunctionT):
-            return False
-        if not (call_t.is_internal or call_t.is_constructor):
-            return False
-        assert call_t.return_type is not None  # guaranteed by type checker
-        if call_t.return_type != ltyp:
-            return False
-
-        rhs_vv = Expr(value_node, self.ctx).lower()
-        if rhs_vv.location != DataLocation.MEMORY:
-            raise CompilerPanic("expected internal memory return to be memory-located")
-        if not isinstance(rhs_vv.operand, IRVariable):
-            raise CompilerPanic("expected internal memory return pointer to be IRVariable")
-
-        self.ctx.register_variable(varname, ltyp, rhs_vv.operand)
-        return True
 
     def lower_Assign(self) -> None:
         """Lower regular assignment.
