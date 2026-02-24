@@ -91,3 +91,85 @@ def foo() -> uint256:
         return op
 
     assert _assign_root(invoke_arg) == _assign_root(mcopy_dst)
+
+
+def test_mutable_internal_memory_arg_is_not_forwarded():
+    code = """
+@internal
+def _touch(a: uint256[2]) -> uint256:
+    a[0] = 99
+    return a[0]
+
+@internal
+def _driver() -> uint256:
+    x: uint256[2] = [1, 2]
+    return self._touch(x)
+
+@external
+def foo() -> uint256:
+    return self._driver()
+    """
+
+    settings = Settings(experimental_codegen=True, optimize=OptimizationLevel.O3)
+    settings.venom_flags = VenomOptimizationFlags(level=OptimizationLevel.O3, disable_inlining=True)
+
+    ctx = compile_code(code, settings=settings, output_formats=["ir_runtime"])["ir_runtime"]
+
+    driver_fn = next(fn for fn in ctx.functions.values() if "_driver" in str(fn.name))
+    driver_insts = [inst for bb in driver_fn.get_basic_blocks() for inst in bb.instructions]
+    invokes = [inst for inst in driver_insts if inst.opcode == "invoke"]
+    mcopies = [inst for inst in driver_insts if inst.opcode == "mcopy"]
+
+    assert len(invokes) == 1
+    # Mutable callee arg should keep a by-value staging copy.
+    assert len(mcopies) >= 1
+
+    defs = {inst.output: inst for inst in driver_insts if inst.has_outputs}
+
+    def _assign_root(op):
+        while isinstance(op, IRVariable):
+            inst = defs.get(op)
+            if inst is None or inst.opcode != "assign":
+                break
+            src = inst.operands[0]
+            if not isinstance(src, IRVariable):
+                return src
+            op = src
+        return op
+
+    invoke_root = _assign_root(invokes[0].operands[1])
+    mcopy_dst_roots = {_assign_root(inst.operands[2]) for inst in mcopies}
+    assert invoke_root in mcopy_dst_roots
+
+
+def test_readonly_propagates_transitively_across_internal_calls():
+    code = """
+@internal
+def _sum(a: uint256[2]) -> uint256:
+    return a[0] + a[1]
+
+@internal
+def _wrap(a: uint256[2]) -> uint256:
+    return self._sum(a)
+
+@internal
+def _driver() -> uint256:
+    x: uint256[2] = [1, 2]
+    return self._wrap(x)
+
+@external
+def foo() -> uint256:
+    return self._driver()
+    """
+
+    settings = Settings(experimental_codegen=True, optimize=OptimizationLevel.O3)
+    settings.venom_flags = VenomOptimizationFlags(level=OptimizationLevel.O3, disable_inlining=True)
+
+    ctx = compile_code(code, settings=settings, output_formats=["ir_runtime"])["ir_runtime"]
+
+    driver_fn = next(fn for fn in ctx.functions.values() if "_driver" in str(fn.name))
+    opcodes = [inst.opcode for bb in driver_fn.get_basic_blocks() for inst in bb.instructions]
+
+    assert opcodes.count("invoke") >= 1
+    # `_wrap` should be inferred readonly and allow forwarding at `_driver`.
+    assert "mcopy" not in opcodes

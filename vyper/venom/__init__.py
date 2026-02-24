@@ -26,6 +26,7 @@ from vyper.venom.passes import (
     InvokeArgCopyForwardingPass,
     LoadElimination,
     Mem2Var,
+    ReadonlyMemoryArgsAnalysisPass,
     RemoveUnusedVariablesPass,
     SimplifyCFGPass,
 )
@@ -115,6 +116,7 @@ def _run_global_passes(
     ctx: IRContext, flags: VenomOptimizationFlags, ir_analyses: dict[IRFunction, IRAnalysesCache]
 ) -> None:
     FixCalloca(ir_analyses, ctx).run_pass()
+    ReadonlyMemoryArgsAnalysisPass(ir_analyses, ctx).run_pass()
     for fn in ctx.get_functions():
         InvokeArgCopyForwardingPass(ir_analyses[fn], fn).run_pass()
     if not flags.disable_inlining:
