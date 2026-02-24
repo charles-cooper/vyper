@@ -117,6 +117,10 @@ def _run_global_passes(
 ) -> None:
     FixCalloca(ir_analyses, ctx).run_pass()
     ReadonlyMemoryArgsAnalysisPass(ir_analyses, ctx).run_pass()
+    # Intentionally run InvokeArgCopyForwardingPass twice in the full pipeline:
+    # 1) here (pre-inlining) to shrink obvious frontend-emitted staging copies
+    # 2) again in O2/O3/Os per-function pipelines to catch shapes created later.
+    # Keep this note in sync with optimization_levels/* where the second run is listed.
     for fn in ctx.get_functions():
         InvokeArgCopyForwardingPass(ir_analyses[fn], fn).run_pass()
     if not flags.disable_inlining:

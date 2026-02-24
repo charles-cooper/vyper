@@ -62,6 +62,7 @@ PASSES_O3: List[PassConfig] = [
     AssignElimination,
     RevertToAssert,
     SimplifyCFGPass,
+    # Second InvokeArgCopyForwardingPass run (first is global pre-inlining in venom/__init__.py).
     InvokeArgCopyForwardingPass,
     # run memmerge before LowerDload
     MemMergePass,
