@@ -33,7 +33,7 @@ from vyper.venom.basicblock import IRLiteral, IROperand, IRVariable
 
 from .buffer import Ptr
 from .context import Constancy, VenomCodegenContext
-from .expr import Expr, _potential_overlap_ast
+from .expr import Expr
 
 
 class Stmt:
@@ -131,9 +131,9 @@ class Stmt:
         if target_typ._is_prim_word:
             self.ctx.ptr_store(dst_ptr, src)
         else:
-            # Match legacy behavior: only stage through a temp buffer when
-            # target and source may overlap.
-            if _potential_overlap_ast(target, node.value):
+            # Keep frontend simple: memory destinations are lowered through a
+            # staging copy; backend passes collapse redundant copies.
+            if dst_ptr.location == DataLocation.MEMORY:
                 self._copy_complex_type(src, dst_ptr, target_typ)
             else:
                 self._store_complex_type(src, dst_ptr, target_typ)
