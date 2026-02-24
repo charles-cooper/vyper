@@ -8,7 +8,7 @@ from vyper.ir.compile_ir import AssemblyInstruction
 from vyper.venom.analysis.analysis import IRAnalysesCache
 from vyper.venom.analysis.fcg import FCGAnalysis
 from vyper.venom.check_venom import check_calling_convention
-from vyper.venom.context import DeployInfo, IRContext
+from vyper.venom.context import IRContext
 from vyper.venom.function import IRFunction
 from vyper.venom.optimization_levels.O2 import PASSES_O2
 from vyper.venom.optimization_levels.O3 import PASSES_O3
