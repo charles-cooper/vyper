@@ -1,7 +1,15 @@
 from collections import deque
 
-from vyper.venom.analysis import DFGAnalysis, DominatorTreeAnalysis, LivenessAnalysis
+import vyper.evm.address_space as addr_space
+from vyper.venom.analysis import (
+    BasePtrAnalysis,
+    DFGAnalysis,
+    DominatorTreeAnalysis,
+    LivenessAnalysis,
+    MemoryAliasAnalysis,
+)
 from vyper.venom.basicblock import IRInstruction, IRLabel, IRLiteral, IROperand, IRVariable
+from vyper.venom.effects import Effects
 from vyper.venom.passes.base_pass import IRPass
 from vyper.venom.passes.machinery.inst_updater import InstUpdater
 
@@ -28,11 +36,15 @@ class InvokeArgCopyForwardingPass(IRPass):
 
     dfg: DFGAnalysis
     domtree: DominatorTreeAnalysis
+    base_ptr: BasePtrAnalysis
+    mem_alias: MemoryAliasAnalysis
     updater: InstUpdater
 
     def run_pass(self):
         self.dfg = self.analyses_cache.request_analysis(DFGAnalysis)
         self.domtree = self.analyses_cache.request_analysis(DominatorTreeAnalysis)
+        self.base_ptr = self.analyses_cache.request_analysis(BasePtrAnalysis)
+        self.mem_alias = self.analyses_cache.request_analysis(MemoryAliasAnalysis)
         self.updater = InstUpdater(self.dfg)
         changed = False
 
@@ -140,6 +152,9 @@ class InvokeArgCopyForwardingPass(IRPass):
             if bb_insts.index(invoke_inst) < copy_idx:
                 return False
 
+        if self._has_src_clobber_between(copy_inst, rewrite_sites):
+            return False
+
         src = self._assign_root(copy_inst.operands[1])
         if isinstance(src, IRVariable) and src in aliases:
             return False
@@ -206,55 +221,19 @@ class InvokeArgCopyForwardingPass(IRPass):
         if not isinstance(target, IRLabel):
             return False
 
-        arg_count = self._count_target_label_args(target.value)
-        if arg_count is None:
+        try:
+            callee = self.function.ctx.get_function(target)
+        except KeyError:
             return False
 
-        # Invoke operands exclude return_pc. A memory-return internal call
-        # has one extra invoke operand: the return buffer pointer.
+        if callee._invoke_param_count is None or callee._has_memory_return_buffer_param is None:
+            return False
+
         invoke_arg_count = len(invoke_inst.operands) - 1
-        return invoke_arg_count == arg_count + 1
+        if invoke_arg_count != callee._invoke_param_count:
+            return False
 
-    def _count_target_label_args(self, label_value: str) -> int | None:
-        start = label_value.find("(")
-        if start == -1:
-            return None
-
-        depth = 0
-        end = -1
-        for i in range(start, len(label_value)):
-            ch = label_value[i]
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-
-        if end == -1:
-            return None
-
-        args = label_value[start + 1 : end].strip()
-        if len(args) == 0:
-            return 0
-
-        n_args = 1
-        paren_depth = 0
-        bracket_depth = 0
-        for ch in args:
-            if ch == "(":
-                paren_depth += 1
-            elif ch == ")":
-                paren_depth -= 1
-            elif ch == "[":
-                bracket_depth += 1
-            elif ch == "]":
-                bracket_depth -= 1
-            elif ch == "," and paren_depth == 0 and bracket_depth == 0:
-                n_args += 1
-
-        return n_args
+        return callee._has_memory_return_buffer_param
 
     def _is_alloca_like(self, inst: IRInstruction | None) -> bool:
         return inst is not None and inst.opcode in ("alloca", "calloca")
@@ -278,6 +257,27 @@ class InvokeArgCopyForwardingPass(IRPass):
 
         readonly_idxs = callee._readonly_memory_invoke_arg_idxs
         return (operand_idx - 1) in readonly_idxs
+
+    def _has_src_clobber_between(
+        self, copy_inst: IRInstruction, rewrite_sites: set[tuple[IRInstruction, int]]
+    ) -> bool:
+        src_loc = self.base_ptr.get_read_location(copy_inst, addr_space.MEMORY)
+        if src_loc.is_empty():
+            return False
+
+        bb_insts = copy_inst.parent.instructions
+        copy_idx = bb_insts.index(copy_inst)
+
+        for invoke_inst, _ in rewrite_sites:
+            invoke_idx = bb_insts.index(invoke_inst)
+            for inst in bb_insts[copy_idx + 1 : invoke_idx]:
+                if inst.get_write_effects() & Effects.MEMORY == Effects(0):
+                    continue
+                write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
+                if self.mem_alias.may_alias(src_loc, write_loc):
+                    return True
+
+        return False
 
     def _collect_assign_aliases(self, root: IRVariable) -> set[IRVariable]:
         aliases: set[IRVariable] = {root}

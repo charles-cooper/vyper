@@ -43,3 +43,48 @@ def test_gep_read_keeps_param_readonly():
     ctx = _run_readonly_analysis(src)
     fn = ctx.get_function(IRLabel("f"))
     assert fn._readonly_memory_invoke_arg_idxs == (0,)
+
+
+def test_add_of_two_params_marks_both_mutable():
+    src = """
+    function f {
+    f:
+        %a = param
+        %b = param
+        %retpc = param
+        %ptr = add %a, %b
+        mstore %ptr, 1
+        ret %retpc
+    }
+    """
+
+    ctx = _run_readonly_analysis(src)
+    fn = ctx.get_function(IRLabel("f"))
+    assert fn._readonly_memory_invoke_arg_idxs == ()
+
+
+def test_phi_of_two_params_marks_both_mutable():
+    src = """
+    function f {
+    f:
+        %a = param
+        %b = param
+        %retpc = param
+        jnz %a, @left, @right
+
+    left:
+        jmp @merge
+
+    right:
+        jmp @merge
+
+    merge:
+        %ptr = phi @left, %a, @right, %b
+        mstore %ptr, 1
+        ret %retpc
+    }
+    """
+
+    ctx = _run_readonly_analysis(src)
+    fn = ctx.get_function(IRLabel("f"))
+    assert fn._readonly_memory_invoke_arg_idxs == ()

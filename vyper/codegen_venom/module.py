@@ -1311,10 +1311,15 @@ def _generate_internal_function(
     # Set up return handling
     pass_via_stack = codegen_ctx.pass_via_stack(func_t)
     returns_count = codegen_ctx.returns_stack_count(func_t)
+    has_memory_return_buffer = func_t.return_type is not None and returns_count == 0
+
+    # Structured invoke metadata used by backend passes.
+    fn._has_memory_return_buffer_param = has_memory_return_buffer
+    fn._invoke_param_count = len(func_t.arguments) + (1 if has_memory_return_buffer else 0)
 
     # Handle parameters
     # First: return buffer pointer if memory return
-    if func_t.return_type is not None and returns_count == 0:
+    if has_memory_return_buffer:
         codegen_ctx.return_buffer = builder.param()
 
     # Handle function arguments

@@ -70,45 +70,48 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
 
         mutable = [False] * n
         dfg = self.analyses_caches[fn].request_analysis(DFGAnalysis)
+        all_param_roots = frozenset(range(n))
 
-        root_memo: dict[IRVariable, int | None] = {}
+        root_memo: dict[IRVariable, frozenset[int]] = {}
         root_active: set[IRVariable] = set()
 
-        def root_param_index(op: IROperand) -> int | None:
+        def root_param_indices(op: IROperand) -> frozenset[int]:
             if not isinstance(op, IRVariable):
-                return None
-            return root_param_index_var(op)
+                return frozenset()
+            return root_param_indices_var(op)
 
-        def root_param_index_var(var: IRVariable) -> int | None:
+        def root_param_indices_var(var: IRVariable) -> frozenset[int]:
             if var in root_memo:
                 return root_memo[var]
             if var in root_active:
-                return None
+                # Cycles through phi/self-assign can arise in SSA-like IR.
+                # Return "all params" here so we remain conservative for mutability.
+                return all_param_roots
 
             idx = info.invoke_param_index.get(var, None)
             if idx is not None:
-                root_memo[var] = idx
-                return idx
+                roots = frozenset([idx])
+                root_memo[var] = roots
+                return roots
 
             root_active.add(var)
             inst = dfg.get_producing_instruction(var)
-            idx = self._root_from_inst(inst, root_param_index_var)
+            roots = self._root_from_inst(inst, root_param_indices_var)
             root_active.remove(var)
-            root_memo[var] = idx
-            return idx
+            root_memo[var] = roots
+            return roots
 
         for bb in fn.get_basic_blocks():
             for inst in bb.instructions:
                 if inst.opcode == "invoke":
-                    self._handle_invoke(inst, mutable, root_param_index, readonly_by_fn)
+                    self._handle_invoke(inst, mutable, root_param_indices, readonly_by_fn)
                     continue
 
                 write_ofst = memory_write_ops(inst).ofst
                 if write_ofst is None:
                     continue
 
-                idx = root_param_index(write_ofst)
-                if idx is not None:
+                for idx in root_param_indices(write_ofst):
                     mutable[idx] = True
 
         return tuple(not is_mut for is_mut in mutable)
@@ -117,7 +120,7 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
         self,
         inst: IRInstruction,
         mutable: list[bool],
-        root_param_index,
+        root_param_indices,
         readonly_by_fn: dict[IRFunction, tuple[bool, ...]],
     ) -> None:
         target = inst.operands[0]
@@ -127,97 +130,79 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
         callee = self.ctx.functions.get(target, None)
 
         for op_idx, op in enumerate(inst.operands[1:], start=1):
-            caller_idx = root_param_index(op)
-            if caller_idx is None:
+            caller_idxs = root_param_indices(op)
+            if len(caller_idxs) == 0:
                 continue
 
             callee_arg_idx = op_idx - 1
             if callee is None:
-                mutable[caller_idx] = True
+                for caller_idx in caller_idxs:
+                    mutable[caller_idx] = True
                 continue
 
             callee_state = readonly_by_fn.get(callee, ())
             if callee_arg_idx >= len(callee_state) or not callee_state[callee_arg_idx]:
-                mutable[caller_idx] = True
+                for caller_idx in caller_idxs:
+                    mutable[caller_idx] = True
 
-    def _root_from_inst(self, inst: IRInstruction | None, root_param_index_var) -> int | None:
+    def _root_from_inst(
+        self, inst: IRInstruction | None, root_param_indices_var
+    ) -> frozenset[int]:
         if inst is None:
-            return None
+            return frozenset()
 
         op = inst.opcode
         if op == "assign":
             src = inst.operands[0]
             if isinstance(src, IRVariable):
-                return root_param_index_var(src)
-            return None
+                return root_param_indices_var(src)
+            return frozenset()
 
         if op == "gep":
-            return self._root_from_gep(inst, root_param_index_var)
+            return self._root_from_gep(inst, root_param_indices_var)
 
         if op == "add":
-            return self._root_from_add(inst, root_param_index_var)
+            return self._root_from_add(inst, root_param_indices_var)
 
         if op == "sub":
-            return self._root_from_sub(inst, root_param_index_var)
+            return self._root_from_sub(inst, root_param_indices_var)
 
         if op == "phi":
-            roots = set()
+            roots: set[int] = set()
             for _, v in inst.phi_operands:
-                r = root_param_index_var(v)
-                if r is None:
-                    return None
-                roots.add(r)
-            if len(roots) == 1:
-                return next(iter(roots))
-            return None
+                roots.update(root_param_indices_var(v))
+            return frozenset(roots)
 
-        return None
+        return frozenset()
 
-    def _root_from_add(self, inst: IRInstruction, root_param_index_var) -> int | None:
-        roots = set()
+    def _root_from_add(self, inst: IRInstruction, root_param_indices_var) -> frozenset[int]:
+        roots: set[int] = set()
         for op in inst.operands:
             if not isinstance(op, IRVariable):
                 continue
-            r = root_param_index_var(op)
-            if r is not None:
-                roots.add(r)
+            roots.update(root_param_indices_var(op))
+        return frozenset(roots)
 
-        if len(roots) == 1:
-            return next(iter(roots))
-        return None
-
-    def _root_from_sub(self, inst: IRInstruction, root_param_index_var) -> int | None:
+    def _root_from_sub(self, inst: IRInstruction, root_param_indices_var) -> frozenset[int]:
         # IR order for sub(a, b) is [b, a].
         if len(inst.operands) != 2:
-            return None
+            return frozenset()
         b, a = inst.operands
-        if not isinstance(a, IRVariable):
-            return None
+        roots: set[int] = set()
+        if isinstance(a, IRVariable):
+            roots.update(root_param_indices_var(a))
+        if isinstance(b, IRVariable):
+            roots.update(root_param_indices_var(b))
+        return frozenset(roots)
 
-        ra = root_param_index_var(a)
-        if ra is None:
-            return None
-
-        rb = root_param_index_var(b) if isinstance(b, IRVariable) else None
-        if rb is None or rb == ra:
-            return ra
-        return None
-
-    def _root_from_gep(self, inst: IRInstruction, root_param_index_var) -> int | None:
+    def _root_from_gep(self, inst: IRInstruction, root_param_indices_var) -> frozenset[int]:
         # IR order for gep(ptr, offset) is [ptr, offset].
         if len(inst.operands) != 2:
-            return None
+            return frozenset()
         base, offset = inst.operands
-        if not isinstance(base, IRVariable):
-            return None
-
-        rbase = root_param_index_var(base)
-        if rbase is None:
-            return None
-
-        # If offset is derived from a different parameter root, we can't
-        # attribute the resulting pointer to a single param.
-        roffset = root_param_index_var(offset) if isinstance(offset, IRVariable) else None
-        if roffset is None or roffset == rbase:
-            return rbase
-        return None
+        roots: set[int] = set()
+        if isinstance(base, IRVariable):
+            roots.update(root_param_indices_var(base))
+        if isinstance(offset, IRVariable):
+            roots.update(root_param_indices_var(offset))
+        return frozenset(roots)
