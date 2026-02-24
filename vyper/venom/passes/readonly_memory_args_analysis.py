@@ -171,18 +171,6 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
                 return next(iter(roots))
             return None
 
-        if op == "select":
-            # select cond, a, b  (stored as [b, a, cond])
-            a = inst.operands[1]
-            b = inst.operands[2]
-            if not isinstance(a, IRVariable) or not isinstance(b, IRVariable):
-                return None
-            ra = root_param_index_var(a)
-            rb = root_param_index_var(b)
-            if ra is not None and ra == rb:
-                return ra
-            return None
-
         return None
 
     def _root_from_add(self, inst: IRInstruction, root_param_index_var) -> int | None:
