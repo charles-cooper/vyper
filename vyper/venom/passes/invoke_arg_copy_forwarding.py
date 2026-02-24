@@ -273,7 +273,7 @@ class InvokeArgCopyForwardingPass(IRPass):
 
         try:
             callee = self.function.ctx.get_function(target)
-        except Exception:
+        except KeyError:
             return False
 
         readonly_idxs = callee._readonly_memory_invoke_arg_idxs
