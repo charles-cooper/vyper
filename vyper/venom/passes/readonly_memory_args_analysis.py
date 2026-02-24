@@ -145,9 +145,7 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
                 for caller_idx in caller_idxs:
                     mutable[caller_idx] = True
 
-    def _root_from_inst(
-        self, inst: IRInstruction | None, root_param_indices_var
-    ) -> frozenset[int]:
+    def _root_from_inst(self, inst: IRInstruction | None, root_param_indices_var) -> frozenset[int]:
         if inst is None:
             return frozenset()
 

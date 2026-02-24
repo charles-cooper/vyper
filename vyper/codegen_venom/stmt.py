@@ -29,7 +29,7 @@ from vyper.semantics.types.function import ContractFunctionT
 from vyper.semantics.types.subscriptable import DArrayT, SArrayT, TupleT
 from vyper.semantics.types.user import EventT, StructT
 from vyper.utils import method_id_int
-from vyper.venom.basicblock import IRLiteral, IROperand, IRVariable
+from vyper.venom.basicblock import IRLiteral, IROperand
 
 from .buffer import Ptr
 from .context import Constancy, VenomCodegenContext

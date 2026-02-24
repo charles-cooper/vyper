@@ -79,6 +79,7 @@ class InvokeArgCopyForwardingPass(IRPass):
 
         if not self._is_alloca_like(dst_root_inst) or not self._is_alloca_like(src_root_inst):
             return False
+        assert dst_root_inst is not None and src_root_inst is not None  # ensured above
         if not self._matches_alloca_size(dst_root_inst, size.value):
             return False
         if not self._matches_alloca_size(src_root_inst, size.value):
@@ -104,7 +105,7 @@ class InvokeArgCopyForwardingPass(IRPass):
                         return False
                     rewrite_insts.add(use)
 
-        replace_map = {var: src_root for var in dst_aliases}
+        replace_map: dict[IROperand, IROperand] = {var: src_root for var in dst_aliases}
         for use in rewrite_insts:
             self.updater.update_operands(use, replace_map)
 
@@ -182,7 +183,9 @@ class InvokeArgCopyForwardingPass(IRPass):
 
         return self.domtree.dominates(copy_bb, use_bb)
 
-    def _is_internal_return_buffer_source(self, src_root: IRVariable, copy_inst: IRInstruction) -> bool:
+    def _is_internal_return_buffer_source(
+        self, src_root: IRVariable, copy_inst: IRInstruction
+    ) -> bool:
         aliases = self._collect_assign_aliases(src_root)
         copy_seen = False
         invoke_sites: set[IRInstruction] = set()
