@@ -151,6 +151,9 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
                 return root_param_index_var(src)
             return None
 
+        if op == "gep":
+            return self._root_from_gep(inst, root_param_index_var)
+
         if op == "add":
             return self._root_from_add(inst, root_param_index_var)
 
@@ -210,4 +213,23 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
         rb = root_param_index_var(b) if isinstance(b, IRVariable) else None
         if rb is None or rb == ra:
             return ra
+        return None
+
+    def _root_from_gep(self, inst: IRInstruction, root_param_index_var) -> int | None:
+        # IR order for gep(ptr, offset) is [ptr, offset].
+        if len(inst.operands) != 2:
+            return None
+        base, offset = inst.operands
+        if not isinstance(base, IRVariable):
+            return None
+
+        rbase = root_param_index_var(base)
+        if rbase is None:
+            return None
+
+        # If offset is derived from a different parameter root, we can't
+        # attribute the resulting pointer to a single param.
+        roffset = root_param_index_var(offset) if isinstance(offset, IRVariable) else None
+        if roffset is None or roffset == rbase:
+            return rbase
         return None
