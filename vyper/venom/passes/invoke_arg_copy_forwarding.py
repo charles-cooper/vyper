@@ -223,9 +223,8 @@ class InvokeArgCopyForwardingPass(IRPass):
         if not isinstance(target, IRLabel):
             return False
 
-        try:
-            callee = self.function.ctx.get_function(target)
-        except KeyError:
+        callee = self.function.ctx.functions.get(target.value)
+        if callee is None:
             return False
 
         if callee._invoke_param_count is None or callee._has_memory_return_buffer_param is None:
@@ -252,9 +251,8 @@ class InvokeArgCopyForwardingPass(IRPass):
         if not isinstance(target, IRLabel):
             return False
 
-        try:
-            callee = self.function.ctx.get_function(target)
-        except KeyError:
+        callee = self.function.ctx.functions.get(target.value)
+        if callee is None:
             return False
 
         readonly_idxs = callee._readonly_memory_invoke_arg_idxs
