@@ -1,4 +1,5 @@
 from collections import deque
+from collections.abc import Iterator
 
 import vyper.evm.address_space as addr_space
 from vyper.venom.analysis import (
@@ -91,19 +92,16 @@ class InvokeArgCopyForwardingPass(IRPass):
         dst_aliases = self._collect_assign_aliases(dst_root)
         rewrite_insts: set[IRInstruction] = set()
 
-        for var in dst_aliases:
-            for use in self.dfg.get_uses(var):
-                positions = [i for i, op in enumerate(use.operands) if op == var]
-                for pos in positions:
-                    if use.opcode == "assign" and pos == 0:
-                        continue
-                    if use.opcode == "mcopy" and pos == 2 and use is copy_inst:
-                        continue
-                    if use.opcode == "phi":
-                        return False
-                    if not self._is_after(copy_inst, use):
-                        return False
-                    rewrite_insts.add(use)
+        for _, use, pos in self._iter_alias_use_positions(dst_aliases):
+            if self._is_assign_output_use(use, pos):
+                continue
+            if use.opcode == "mcopy" and pos == 2 and use is copy_inst:
+                continue
+            if use.opcode == "phi":
+                return False
+            if not self._is_after(copy_inst, use):
+                return False
+            rewrite_insts.add(use)
 
         replace_map: dict[IROperand, IROperand] = {var: src_root for var in dst_aliases}
         for use in rewrite_insts:
@@ -125,20 +123,17 @@ class InvokeArgCopyForwardingPass(IRPass):
         aliases = self._collect_assign_aliases(root)
         rewrite_sites: set[tuple[IRInstruction, int]] = set()
 
-        for var in aliases:
-            for use in self.dfg.get_uses(var):
-                positions = [i for i, op in enumerate(use.operands) if op == var]
-                for pos in positions:
-                    if use.opcode == "assign" and pos == 0:
-                        continue
-                    if use.opcode == "mcopy" and pos == 2:
-                        if use is not copy_inst:
-                            return False
-                        continue
-                    if use.opcode == "invoke" and self._is_readonly_invoke_operand(use, pos):
-                        rewrite_sites.add((use, pos))
-                        continue
+        for _, use, pos in self._iter_alias_use_positions(aliases):
+            if self._is_assign_output_use(use, pos):
+                continue
+            if use.opcode == "mcopy" and pos == 2:
+                if use is not copy_inst:
                     return False
+                continue
+            if use.opcode == "invoke" and self._is_readonly_invoke_operand(use, pos):
+                rewrite_sites.add((use, pos))
+                continue
+            return False
 
         if len(rewrite_sites) == 0:
             return False
@@ -221,37 +216,30 @@ class InvokeArgCopyForwardingPass(IRPass):
         bb_insts = copy_bb.instructions
         copy_idx = bb_insts.index(copy_inst)
 
-        for var in aliases:
-            for use in self.dfg.get_uses(var):
-                positions = [i for i, op in enumerate(use.operands) if op == var]
-                for pos in positions:
-                    if use.opcode == "assign" and pos == 0:
-                        continue
+        for _, use, pos in self._iter_alias_use_positions(aliases):
+            if self._is_assign_output_use(use, pos):
+                continue
 
-                    if use.opcode == "mcopy" and pos == 1 and use is copy_inst:
-                        copy_seen = True
-                        continue
+            if use.opcode == "mcopy" and pos == 1 and use is copy_inst:
+                copy_seen = True
+                continue
 
-                    if use.opcode == "invoke" and pos == 1:
-                        if use.parent is not copy_bb:
-                            return False
-                        if bb_insts.index(use) >= copy_idx:
-                            return False
-                        if not self._invoke_has_return_buffer(use):
-                            return False
-                        invoke_sites.add(use)
-                        continue
-
+            if use.opcode == "invoke" and pos == 1:
+                if use.parent is not copy_bb:
                     return False
+                if bb_insts.index(use) >= copy_idx:
+                    return False
+                if not self._invoke_has_return_buffer(use):
+                    return False
+                invoke_sites.add(use)
+                continue
+
+            return False
 
         return copy_seen and len(invoke_sites) == 1
 
     def _invoke_has_return_buffer(self, invoke_inst: IRInstruction) -> bool:
-        target = invoke_inst.operands[0]
-        if not isinstance(target, IRLabel):
-            return False
-
-        callee = self.function.ctx.functions.get(target)
+        callee = self._get_invoke_callee(invoke_inst)
         if callee is None:
             return False
 
@@ -275,16 +263,18 @@ class InvokeArgCopyForwardingPass(IRPass):
         if operand_idx == 0:
             return False
 
-        target = invoke_inst.operands[0]
-        if not isinstance(target, IRLabel):
-            return False
-
-        callee = self.function.ctx.functions.get(target)
+        callee = self._get_invoke_callee(invoke_inst)
         if callee is None:
             return False
 
         readonly_idxs = callee._readonly_memory_invoke_arg_idxs
         return (operand_idx - 1) in readonly_idxs
+
+    def _get_invoke_callee(self, invoke_inst: IRInstruction):
+        target = invoke_inst.operands[0]
+        if not isinstance(target, IRLabel):
+            return None
+        return self.function.ctx.functions.get(target)
 
     def _has_src_clobber_between(
         self, copy_inst: IRInstruction, rewrite_sites: set[tuple[IRInstruction, int]]
@@ -323,6 +313,22 @@ class InvokeArgCopyForwardingPass(IRPass):
                 worklist.append(out)
 
         return aliases
+
+    def _iter_use_positions(self, var: IRVariable) -> Iterator[tuple[IRInstruction, int]]:
+        for use in self.dfg.get_uses(var):
+            for pos, op in enumerate(use.operands):
+                if op == var:
+                    yield use, pos
+
+    def _iter_alias_use_positions(
+        self, aliases: set[IRVariable]
+    ) -> Iterator[tuple[IRVariable, IRInstruction, int]]:
+        for var in aliases:
+            for use, pos in self._iter_use_positions(var):
+                yield var, use, pos
+
+    def _is_assign_output_use(self, use: IRInstruction, operand_pos: int) -> bool:
+        return use.opcode == "assign" and operand_pos == 0
 
     def _assign_root(self, op: IROperand) -> IROperand:
         if not isinstance(op, IRVariable):
