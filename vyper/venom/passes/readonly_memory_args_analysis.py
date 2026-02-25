@@ -52,14 +52,31 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
             fn._readonly_memory_invoke_arg_idxs = idxs
 
     def _collect_param_info(self, fn: IRFunction) -> _FnParamInfo:
-        # Internal-call convention: last param is return_pc.
         params = [inst.output for inst in fn.entry.param_instructions]
         if len(params) == 0:
             return _FnParamInfo(tuple(), {})
 
-        invoke_params = tuple(params[:-1])
+        if fn._invoke_param_count is not None:
+            # Structured metadata populated by codegen for internal functions.
+            invoke_count = min(fn._invoke_param_count, len(params))
+            invoke_params = tuple(params[:invoke_count])
+        elif self._has_ret_instruction(fn):
+            # Conservative fallback for test/manual IR that uses internal-call
+            # convention but does not populate invoke metadata.
+            invoke_params = tuple(params[:-1])
+        else:
+            # Entry/non-invoked functions have no return_pc operand in practice.
+            invoke_params = tuple(params)
+
         invoke_param_index = {var: i for i, var in enumerate(invoke_params)}
         return _FnParamInfo(invoke_params, invoke_param_index)
+
+    def _has_ret_instruction(self, fn: IRFunction) -> bool:
+        for bb in fn.get_basic_blocks():
+            for inst in bb.instructions:
+                if inst.opcode == "ret":
+                    return True
+        return False
 
     def _analyze_fn(
         self, fn: IRFunction, info: _FnParamInfo, readonly_by_fn: dict[IRFunction, tuple[bool, ...]]
@@ -125,6 +142,10 @@ class ReadonlyMemoryArgsAnalysisPass(IRGlobalPass):
     ) -> None:
         target = inst.operands[0]
         if not isinstance(target, IRLabel):
+            # Conservative fallback for malformed/manual IR.
+            for op in inst.operands[1:]:
+                for idx in root_param_indices(op):
+                    mutable[idx] = True
             return
 
         callee = self.ctx.functions.get(target, None)

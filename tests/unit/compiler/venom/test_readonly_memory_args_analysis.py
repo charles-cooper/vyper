@@ -88,3 +88,37 @@ def test_phi_of_two_params_marks_both_mutable():
     ctx = _run_readonly_analysis(src)
     fn = ctx.get_function(IRLabel("f"))
     assert fn._readonly_memory_invoke_arg_idxs == ()
+
+
+def test_function_without_retpc_keeps_all_params():
+    src = """
+    function entry {
+    entry:
+        %arg = param
+        mload %arg
+        stop
+    }
+    """
+
+    ctx = _run_readonly_analysis(src)
+    fn = ctx.get_function(IRLabel("entry"))
+    assert fn._readonly_memory_invoke_arg_idxs == (0,)
+
+
+def test_non_label_invoke_target_marks_args_mutable():
+    src = """
+    function f {
+    f:
+        %target = param
+        %arg = param
+        %retpc = param
+        invoke %target, %arg
+        ret %retpc
+    }
+    """
+
+    ctx = _run_readonly_analysis(src)
+    fn = ctx.get_function(IRLabel("f"))
+    # `%arg` is conservatively mutable due unknown invoke target.
+    # `%target` stays readonly because it is only used as call target.
+    assert fn._readonly_memory_invoke_arg_idxs == (0,)
