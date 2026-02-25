@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import vyper.evm.address_space as addr_space
 from vyper.venom.basicblock import IRInstruction, IRLiteral, IROperand, IRVariable
+from vyper.venom.effects import EMPTY, Effects
 from vyper.venom.passes.invoke_copy_forwarding_common import InvokeCopyForwardingBase
 
 
@@ -65,9 +67,29 @@ class InternalReturnCopyForwardingPass(InvokeCopyForwardingBase):
                 continue
             if use.opcode == "phi":
                 return False
+            if use.parent is not copy_inst.parent:
+                return False
             if not self._is_after(copy_inst, use):
                 return False
             rewrite_insts.add(use)
+
+        # Verify no memory-clobbering instruction between the mcopy and
+        # the last rewritten use.  The invoke that fills %ret_buf is
+        # validated by _is_internal_return_buffer_source (same BB,
+        # before the mcopy), so we only scan from the mcopy onward.
+        bb_insts = copy_inst.parent.instructions
+        copy_idx = bb_insts.index(copy_inst)
+        if rewrite_insts:
+            last_use_idx = max(bb_insts.index(u) for u in rewrite_insts)
+            src_loc = self.base_ptr.get_read_location(copy_inst, addr_space.MEMORY)
+            if src_loc.is_empty():
+                return False
+            for inst in bb_insts[copy_idx + 1 : last_use_idx]:
+                if inst.get_write_effects() & Effects.MEMORY == EMPTY:
+                    continue
+                write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
+                if self.mem_alias.may_alias(src_loc, write_loc):
+                    return False
 
         replace_map: dict[IROperand, IROperand] = {var: src_root for var in dst_aliases}
         for use in rewrite_insts:
