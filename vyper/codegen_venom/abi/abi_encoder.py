@@ -270,10 +270,13 @@ def _encode_dyn_array(
         static_loc = b.add(dst_data, static_ofst)
         assert child_dyn_ofst_val is not None
         dyn_ofst = ctx.ptr_load(child_dyn_ofst_val.ptr())
-        b.mstore(static_loc, dyn_ofst)
-
         child_dst = b.add(dst_data, dyn_ofst)
         child_len = _abi_encode_to_buf(ctx, child_dst, child_src, subtyp)
+
+        # Preserve aliasing safety: encode child data before storing static offset.
+        # If source and destination overlap, writing static_loc first can clobber
+        # bytes that _abi_encode_to_buf still needs to read.
+        b.mstore(static_loc, dyn_ofst)
 
         new_dyn_ofst = b.add(dyn_ofst, child_len)
         ctx.ptr_store(child_dyn_ofst_val.ptr(), new_dyn_ofst)
