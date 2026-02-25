@@ -513,6 +513,7 @@ def _generate_selector_section_sparse(
 
                             if has_kwargs:
                                 # Entry point: handle kwargs, jump to common body
+                                assert func_t._function_id is not None  # help mypy
                                 common_label = common_labels[func_t._function_id]
                                 _generate_entry_point_kwargs(
                                     builder, module_t, func_t, entry_info, common_label
@@ -550,6 +551,7 @@ def _generate_selector_section_sparse(
                 _emit_entry_checks(builder, func_t, entry_info.min_calldatasize)
 
                 if has_kwargs:
+                    assert func_t._function_id is not None  # help mypy
                     common_label = common_labels[func_t._function_id]
                     _generate_entry_point_kwargs(
                         builder, module_t, func_t, entry_info, common_label
@@ -822,6 +824,7 @@ def _generate_selector_section_dense(
 
             if has_kwargs:
                 # Entry point: handle kwargs, jump to common body
+                assert func_t._function_id is not None  # help mypy
                 common_label = common_labels[func_t._function_id]
                 _generate_entry_point_kwargs(builder, module_t, func_t, entry_info, common_label)
             else:
