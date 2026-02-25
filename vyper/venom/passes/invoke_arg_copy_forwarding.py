@@ -159,6 +159,10 @@ class InvokeArgCopyForwardingPass(IRPass):
         src = self._assign_root(copy_inst.operands[1])
         if isinstance(src, IRVariable) and src in aliases:
             return False
+        if isinstance(src, IRVariable) and self._has_mutable_same_source_sibling_arg(
+            rewrite_sites, src
+        ):
+            return False
 
         for invoke_inst, pos in rewrite_sites:
             if invoke_inst.operands[pos] == src:
@@ -171,6 +175,30 @@ class InvokeArgCopyForwardingPass(IRPass):
         # all remaining uses are readonly invokes validated above.
         self.updater.nop(copy_inst)
         return True
+
+    def _has_mutable_same_source_sibling_arg(
+        self, rewrite_sites: set[tuple[IRInstruction, int]], src_root: IRVariable
+    ) -> bool:
+        """
+        Reject readonly forwarding when it would create aliasing between a
+        rewritten readonly arg and a sibling mutable arg in the same invoke:
+
+            invoke @f, %tmp_ro, ..., %src_mut
+            # %tmp_ro came from mcopy(%tmp_ro <- %src_root)
+
+        Rewriting %tmp_ro -> %src_root would change call semantics to pass the
+        same memory region to both params.
+        """
+        for invoke_inst, rewritten_pos in rewrite_sites:
+            for pos, op in enumerate(invoke_inst.operands):
+                if pos == 0 or pos == rewritten_pos:
+                    continue
+                if self._is_readonly_invoke_operand(invoke_inst, pos):
+                    continue
+                root = self._assign_root(op)
+                if root == src_root:
+                    return True
+        return False
 
     def _is_after(self, copy_inst: IRInstruction, use_inst: IRInstruction) -> bool:
         copy_bb = copy_inst.parent
