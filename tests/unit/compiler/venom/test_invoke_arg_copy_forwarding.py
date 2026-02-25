@@ -186,3 +186,50 @@ def test_internal_return_forwarding_still_applies_without_src_clobber():
     assert all(inst.opcode != "mcopy" for inst in insts)
     mload = next(inst for inst in insts if inst.opcode == "mload")
     assert mload.operands[0] == IRVariable("%src")
+
+
+def test_internal_return_forwarding_allows_disjoint_intervening_invoke_write():
+    src = """
+    function caller {
+    caller:
+        %src = alloca 32
+        %dst = alloca 32
+        %other = alloca 32
+        invoke @producer, %src
+        mcopy %dst, %src, 32
+        invoke @writer, %other
+        %v = mload %dst
+        sink %v
+    }
+
+    function producer {
+    producer:
+        %retbuf = param
+        %retpc = param
+        mstore %retbuf, 7
+        ret %retpc
+    }
+
+    function writer {
+    writer:
+        %retbuf = param
+        %retpc = param
+        mstore %retbuf, 9
+        ret %retpc
+    }
+    """
+
+    def _setup(ctx):
+        for fn_name in ("producer", "writer"):
+            callee = ctx.get_function(IRLabel(fn_name))
+            callee._invoke_param_count = 1
+            callee._has_memory_return_buffer_param = True
+
+    ctx = _run_copy_forwarding(src, setup=_setup)
+    caller = ctx.get_function(IRLabel("caller"))
+    insts = [inst for bb in caller.get_basic_blocks() for inst in bb.instructions]
+
+    # Intervening invoke writes to a disjoint buffer, so copy can be forwarded.
+    assert all(inst.opcode != "mcopy" for inst in insts)
+    mload = next(inst for inst in insts if inst.opcode == "mload")
+    assert mload.operands[0] == IRVariable("%src")

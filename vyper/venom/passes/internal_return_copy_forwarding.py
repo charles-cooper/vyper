@@ -3,6 +3,7 @@ from __future__ import annotations
 import vyper.evm.address_space as addr_space
 from vyper.venom.basicblock import IRInstruction, IRLiteral, IROperand, IRVariable
 from vyper.venom.effects import EMPTY, Effects
+from vyper.venom.memory_location import MemoryLocation
 from vyper.venom.passes.invoke_copy_forwarding_common import InvokeCopyForwardingBase
 
 
@@ -85,6 +86,11 @@ class InternalReturnCopyForwardingPass(InvokeCopyForwardingBase):
             if src_loc.is_empty():
                 return False
             for inst in bb_insts[copy_idx + 1 : last_use_idx]:
+                if inst.opcode == "invoke":
+                    if self._invoke_may_clobber_src(inst, src_loc):
+                        return False
+                    continue
+
                 if inst.get_write_effects() & Effects.MEMORY == EMPTY:
                     continue
                 write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
@@ -130,3 +136,28 @@ class InternalReturnCopyForwardingPass(InvokeCopyForwardingBase):
             return False
 
         return copy_seen and len(invoke_sites) == 1
+
+    def _invoke_may_clobber_src(self, invoke_inst: IRInstruction, src_loc: MemoryLocation) -> bool:
+        for pos, op in enumerate(invoke_inst.operands):
+            if pos == 0:
+                continue
+            if not self._invoke_operand_may_write(invoke_inst, pos):
+                continue
+            if not isinstance(op, IRVariable):
+                continue
+
+            ptr = self.base_ptr.ptr_from_op(op)
+            if ptr is None:
+                # Writable operand with unknown pointer shape.
+                return True
+
+            op_loc = MemoryLocation(offset=ptr.offset, size=None, alloca=ptr.base_alloca)
+            if self.mem_alias.may_alias(src_loc, op_loc):
+                return True
+
+        return False
+
+    def _invoke_operand_may_write(self, invoke_inst: IRInstruction, operand_pos: int) -> bool:
+        if operand_pos == 1 and self._invoke_has_return_buffer(invoke_inst):
+            return True
+        return not self._is_readonly_invoke_operand(invoke_inst, operand_pos)
