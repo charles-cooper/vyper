@@ -8,7 +8,7 @@ from vyper.ir.compile_ir import AssemblyInstruction
 from vyper.venom.analysis.analysis import IRAnalysesCache
 from vyper.venom.analysis.fcg import FCGAnalysis
 from vyper.venom.check_venom import check_calling_convention
-from vyper.venom.context import DeployInfo, IRContext
+from vyper.venom.context import IRContext
 from vyper.venom.function import IRFunction
 from vyper.venom.optimization_levels.O2 import PASSES_O2
 from vyper.venom.optimization_levels.O3 import PASSES_O3
@@ -23,8 +23,11 @@ from vyper.venom.passes import (
     BranchOptimizationPass,
     DeadStoreElimination,
     FunctionInlinerPass,
+    InternalReturnCopyForwardingPass,
     LoadElimination,
     Mem2Var,
+    ReadonlyInvokeArgCopyForwardingPass,
+    ReadonlyMemoryArgsAnalysisPass,
     RemoveUnusedVariablesPass,
     SimplifyCFGPass,
 )
@@ -114,8 +117,18 @@ def _run_global_passes(
     ctx: IRContext, flags: VenomOptimizationFlags, ir_analyses: dict[IRFunction, IRAnalysesCache]
 ) -> None:
     FixCalloca(ir_analyses, ctx).run_pass()
+    ReadonlyMemoryArgsAnalysisPass(ir_analyses, ctx).run_pass()
+    # Intentionally run invoke-copy forwarding twice in the full pipeline:
+    # 1) here (pre-inlining) to shrink obvious frontend-emitted staging copies
+    # 2) again in O2/O3/Os per-function pipelines to catch shapes created later.
+    # Keep this note in sync with optimization_levels/* where the second run is listed.
+    for fn in ctx.get_functions():
+        InternalReturnCopyForwardingPass(ir_analyses[fn], fn).run_pass()
+        ReadonlyInvokeArgCopyForwardingPass(ir_analyses[fn], fn).run_pass()
     if not flags.disable_inlining:
         FunctionInlinerPass(ir_analyses, ctx, flags).run_pass()
+        # Inlining changes call graph/arg flows
+        ReadonlyMemoryArgsAnalysisPass(ir_analyses, ctx).run_pass()
 
 
 def run_passes_on(ctx: IRContext, flags: VenomOptimizationFlags) -> None:

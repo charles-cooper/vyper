@@ -1302,15 +1302,24 @@ def _generate_internal_function(
         # Get the alloca instruction (just appended) and force position 0
         alloca_inst = builder._current_bb.instructions[-1]
         assert alloca_inst.opcode == "alloca", f"Expected alloca, got {alloca_inst.opcode}"
-        builder.ctx.mem_allocator.set_position(Allocation(alloca_inst), 0)
+        imm_alloc = Allocation(alloca_inst)
+        builder.ctx.mem_allocator.set_position(imm_alloc, 0)
+        # Keep ctor immutables region reserved in all functions so local
+        # allocas in ctor-context internal calls cannot overlap it.
+        builder.ctx.mem_allocator.add_global(imm_alloc)
 
     # Set up return handling
     pass_via_stack = codegen_ctx.pass_via_stack(func_t)
     returns_count = codegen_ctx.returns_stack_count(func_t)
+    has_memory_return_buffer = func_t.return_type is not None and returns_count == 0
+
+    # Structured invoke metadata used by backend passes.
+    fn._has_memory_return_buffer_param = has_memory_return_buffer
+    fn._invoke_param_count = len(func_t.arguments) + (1 if has_memory_return_buffer else 0)
 
     # Handle parameters
     # First: return buffer pointer if memory return
-    if func_t.return_type is not None and returns_count == 0:
+    if has_memory_return_buffer:
         codegen_ctx.return_buffer = builder.param()
 
     # Handle function arguments
@@ -1392,7 +1401,11 @@ def _generate_constructor(
         # Get the alloca instruction (just appended) and force position 0
         alloca_inst = builder._current_bb.instructions[-1]
         assert alloca_inst.opcode == "alloca", f"Expected alloca, got {alloca_inst.opcode}"
-        builder.ctx.mem_allocator.set_position(Allocation(alloca_inst), 0)
+        imm_alloc = Allocation(alloca_inst)
+        builder.ctx.mem_allocator.set_position(imm_alloc, 0)
+        # Reserve immutables memory globally so later function concretization
+        # never reuses this region for temporary allocas.
+        builder.ctx.mem_allocator.add_global(imm_alloc)
 
         # Force msize to be past immutables region (like legacy's GH issue 3101 fix)
         # This ensures builtins using msize() don't clobber immutables

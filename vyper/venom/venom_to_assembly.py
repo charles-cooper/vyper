@@ -641,13 +641,8 @@ class VenomCompiler:
             assembly.append("MLOAD")
         elif opcode == "istore":
             # istore offset, val -> MSTORE(offset, val)
-            # In Venom codegen, immutables are at memory address 0 during constructor.
-            # Stack has: offset, val (in that order, val on top)
-            # MSTORE expects stack: [offset, val] with val on top
-            # So operands match - just emit MSTORE
-            # Wait - EVM MSTORE pops offset first, then value. So we need [value, offset].
-            # Our stack has [offset, val] with val on top.
-            # Need SWAP1 to get [val, offset] with offset on top.
+            # After operand reordering, stack has offset below val.
+            # MSTORE consumes offset from the top, so swap once first.
             assembly.extend(["SWAP1", "MSTORE"])
         elif opcode in PSEUDO_INSTRUCTION:  # pragma: nocover
             raise CompilerPanic(f"Bad instruction: {opcode}")

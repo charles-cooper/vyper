@@ -59,20 +59,18 @@ class Stmt:
 
         Example: `x: uint256 = 5`
 
-        1. Allocate memory for the variable via new_variable()
-        2. Evaluate the RHS expression
-        3. Store the value at the allocated pointer
+        Allocate local memory and store RHS into it.
         """
         node = self.node
         assert isinstance(node, vy_ast.AnnAssign)
         ltyp = node.target._metadata["type"]
         varname = node.target.id
 
-        # Allocate memory for the new variable
-        var = self.ctx.new_variable(varname, ltyp)
-
         # AnnAssign always has a value in Vyper (semantic analysis ensures this)
         assert node.value is not None
+
+        # Allocate memory for the new variable
+        var = self.ctx.new_variable(varname, ltyp)
 
         # Lower the RHS and store at the allocated pointer
         # lower_value() handles storage/code -> memory copy for complex types
@@ -82,8 +80,8 @@ class Stmt:
         if ltyp._is_prim_word:
             self.ctx.ptr_store(var.value.ptr(), rhs)
         else:
-            # Multi-word types: copy via temp buffer to handle overlap safely
-            self._copy_complex_type(rhs, var.value.ptr(), ltyp)
+            # AnnAssign destination is a fresh allocation: no overlap possible.
+            self._store_complex_type(rhs, var.value.ptr(), ltyp)
 
     def lower_Assign(self) -> None:
         """Lower regular assignment.
@@ -133,19 +131,17 @@ class Stmt:
         if target_typ._is_prim_word:
             self.ctx.ptr_store(dst_ptr, src)
         else:
-            # Multi-word types: copy via temp buffer to handle overlap safely
-            self._copy_complex_type(src, dst_ptr, target_typ)
+            # Keep frontend simple: memory destinations are lowered through a
+            # staging copy; backend passes collapse redundant copies.
+            if dst_ptr.location == DataLocation.MEMORY:
+                self._copy_complex_type(src, dst_ptr, target_typ)
+            else:
+                self._store_complex_type(src, dst_ptr, target_typ)
 
     def _copy_complex_type(self, src: IROperand, dst_ptr: Ptr, typ) -> None:
-        """Copy complex type with overlap handling.
+        """Copy complex type via temporary buffer.
 
         Uses a temp buffer to ensure correct semantics when src/dst may overlap.
-        For storage targets, uses word-by-word sstore.
-        For memory targets, uses mcopy (or word-by-word mstore pre-Cancun).
-        For CODE targets (immutables), uses word-by-word istore.
-
-        This is the conservative approach - always use temp buffer.
-        The optimizer can eliminate unnecessary copies later.
         """
         # Allocate temp buffer
         tmp_val = self.ctx.new_temporary_value(typ)
@@ -153,40 +149,46 @@ class Stmt:
         # Copy src to temp (src is memory pointer)
         self.ctx.copy_memory(tmp_val.operand, src, typ.memory_bytes_required)
 
-        # Copy temp to dst
+        self._store_complex_type(tmp_val.operand, dst_ptr, typ)
+
+    def _store_complex_type(self, src: IROperand, dst_ptr: Ptr, typ) -> None:
+        """Store complex value from memory pointer `src` into destination pointer.
+
+        IMPORTANT: This performs a direct copy with NO overlap protection.
+        The caller MUST ensure that `src` and `dst_ptr` do not alias.
+        When overlap is possible, use `_copy_complex_type` instead, which
+        stages through a temporary buffer.
+        """
+        # Copy src to dst
         if dst_ptr.location == DataLocation.STORAGE:
             # DynArray special case: only copy length + actual elements, not full capacity.
             # This matches legacy codegen behavior (core.py:_dynarray_make_setter).
             if isinstance(typ, DArrayT):
-                self._copy_dynarray_to_storage(
-                    tmp_val.operand, dst_ptr.operand, typ, transient=False
-                )
+                self._copy_dynarray_to_storage(src, dst_ptr.operand, typ, transient=False)
             elif typ.storage_size_in_words == 1:
-                val = self.builder.mload(tmp_val.operand)
+                val = self.builder.mload(src)
                 self.builder.sstore(dst_ptr.operand, val)
             else:
-                self.ctx.store_storage(tmp_val.operand, dst_ptr.operand, typ)
+                self.ctx.store_storage(src, dst_ptr.operand, typ)
         elif dst_ptr.location == DataLocation.TRANSIENT:
             # DynArray special case for transient storage
             if isinstance(typ, DArrayT):
-                self._copy_dynarray_to_storage(
-                    tmp_val.operand, dst_ptr.operand, typ, transient=True
-                )
+                self._copy_dynarray_to_storage(src, dst_ptr.operand, typ, transient=True)
             elif typ.storage_size_in_words == 1:
-                val = self.builder.mload(tmp_val.operand)
+                val = self.builder.mload(src)
                 self.builder.tstore(dst_ptr.operand, val)
             else:
-                self.ctx.store_transient(tmp_val.operand, dst_ptr.operand, typ)
+                self.ctx.store_transient(src, dst_ptr.operand, typ)
         elif dst_ptr.location == DataLocation.CODE:
             # Immutables in constructor - use ptr_store which handles GEP from immutables_alloca
             # For single-word types, load value from temp buffer first
             if typ.memory_bytes_required <= 32:
-                val = self.builder.mload(tmp_val.operand)
+                val = self.builder.mload(src)
                 self.ctx.ptr_store(dst_ptr, val)
             else:
-                self.ctx.store_immutable(tmp_val.operand, dst_ptr.operand, typ)
+                self.ctx.store_immutable(src, dst_ptr.operand, typ)
         else:
-            self.ctx.copy_memory(dst_ptr.operand, tmp_val.operand, typ.memory_bytes_required)
+            self.ctx.copy_memory(dst_ptr.operand, src, typ.memory_bytes_required)
 
     def _lower_tuple_unpack(self) -> None:
         """Lower tuple unpacking assignment: a, b = expr.

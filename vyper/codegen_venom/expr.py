@@ -1528,25 +1528,27 @@ class Expr:
         # By evaluating all args first, we ensure nested calls complete before we
         # allocate staging buffers, avoiding corruption.
         # See legacy codegen: vyper/codegen/self_call.py (contains_self_call handling)
-        arg_vals = []
+        arg_vals: list[VyperValue] = []
         for arg_node in all_arg_nodes:
-            arg_vals.append(Expr(arg_node, self.ctx).lower_value())
+            arg_vals.append(Expr(arg_node, self.ctx).lower())
 
         # Now allocate staging buffers and copy evaluated values
         for i, arg_val in enumerate(arg_vals):
             arg_t = func_t.arguments[i]
+            arg_op = self.ctx.unwrap(arg_val)
 
             if pass_via_stack[arg_t.name]:
                 # Stack-passed arg: use value directly
                 # For struct/tuple types that fit in one word, arg_val is a memory
                 # pointer (from unwrap), so we need to load the actual value
                 if hasattr(arg_t.typ, "tuple_items"):
-                    arg_val = self.builder.mload(arg_val)
-                invoke_args.append(arg_val)
+                    arg_op = self.builder.mload(arg_op)
+                invoke_args.append(arg_op)
             else:
-                # Memory-passed arg: allocate buffer, copy value, pass pointer
+                # Memory-passed arg: allocate buffer, copy value, pass pointer.
+                # Backend passes can forward safe readonly arguments.
                 buf_val = self.ctx.new_temporary_value(arg_t.typ)
-                self.ctx.store_memory(arg_val, buf_val.operand, arg_t.typ)
+                self.ctx.store_memory(arg_op, buf_val.operand, arg_t.typ)
                 invoke_args.append(buf_val.operand)
 
         # Emit invoke instruction
