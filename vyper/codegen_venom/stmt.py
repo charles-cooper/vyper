@@ -73,14 +73,8 @@ class Stmt:
         # Allocate memory for the new variable
         var = self.ctx.new_variable(varname, ltyp)
 
-        # Lower the RHS, preserving location info for aliasing decisions
         rhs = Expr(node.value, self.ctx).lower()
-
-        # For primitive word types, just store
-        if ltyp._is_prim_word:
-            self.ctx.ptr_store(var.value.ptr(), self.ctx.unwrap(rhs))
-        else:
-            self._copy_complex_type(var.value.ptr(), rhs, ltyp)
+        self._assign_value(var.value.ptr(), rhs, ltyp)
 
     def lower_Assign(self) -> None:
         """Lower regular assignment.
@@ -120,17 +114,21 @@ class Stmt:
         # IMPORTANT: Evaluate RHS first, then compute LHS target pointer.
         # This matches legacy codegen and ensures proper semantics for cases
         # like `c[0] = c.pop()` where RHS modifies array length.
-        # lower() preserves location info for aliasing decisions
         src = Expr(node.value, self.ctx).lower()
-
-        # Get the destination pointer (with location info)
         dst_ptr = self._get_target_ptr(target)
+        self._assign_value(dst_ptr, src, target_typ)
 
-        # For primitive word types, no overlap concern - just store
-        if target_typ._is_prim_word:
+    def _assign_value(self, dst_ptr: Ptr, src: VyperValue, typ) -> None:
+        """Assign a VyperValue to a destination pointer.
+
+        Handles both primitive word types (direct store) and complex types
+        (with overlap-safe copying when source and dest are in the same
+        address space).
+        """
+        if typ._is_prim_word:
             self.ctx.ptr_store(dst_ptr, self.ctx.unwrap(src))
         else:
-            self._copy_complex_type(dst_ptr, src, target_typ)
+            self._copy_complex_type(dst_ptr, src, typ)
 
     def _copy_complex_type(self, dst_ptr: Ptr, src_vv: VyperValue, typ) -> None:
         """Copy complex type into `dst_ptr`.
