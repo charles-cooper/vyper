@@ -9,7 +9,7 @@ from vyper.venom.analysis import (
     MemoryAliasAnalysis,
 )
 from vyper.venom.basicblock import IRInstruction, IRLabel, IRLiteral, IROperand, IRVariable
-from vyper.venom.effects import Effects
+from vyper.venom.effects import EMPTY, Effects
 from vyper.venom.passes.base_pass import IRPass
 from vyper.venom.passes.machinery.inst_updater import InstUpdater
 
@@ -271,7 +271,7 @@ class InvokeArgCopyForwardingPass(IRPass):
         for invoke_inst, _ in rewrite_sites:
             invoke_idx = bb_insts.index(invoke_inst)
             for inst in bb_insts[copy_idx + 1 : invoke_idx]:
-                if inst.get_write_effects() & Effects.MEMORY == Effects(0):
+                if inst.get_write_effects() & Effects.MEMORY == EMPTY:
                     continue
                 write_loc = self.base_ptr.get_write_location(inst, addr_space.MEMORY)
                 if self.mem_alias.may_alias(src_loc, write_loc):
