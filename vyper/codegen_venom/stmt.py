@@ -34,6 +34,7 @@ from vyper.venom.basicblock import IRLiteral, IROperand
 from .buffer import Ptr
 from .context import Constancy, VenomCodegenContext
 from .expr import Expr
+from .value import VyperValue
 
 
 class Stmt:
@@ -72,16 +73,14 @@ class Stmt:
         # Allocate memory for the new variable
         var = self.ctx.new_variable(varname, ltyp)
 
-        # Lower the RHS and store at the allocated pointer
-        # lower_value() handles storage/code -> memory copy for complex types
-        rhs = Expr(node.value, self.ctx).lower_value()
+        # Lower the RHS, preserving location info for aliasing decisions
+        rhs = Expr(node.value, self.ctx).lower()
 
         # For primitive word types, just store
         if ltyp._is_prim_word:
-            self.ctx.ptr_store(var.value.ptr(), rhs)
+            self.ctx.ptr_store(var.value.ptr(), self.ctx.unwrap(rhs))
         else:
-            # AnnAssign destination is a fresh allocation: no overlap possible.
-            self._store_complex_type(rhs, var.value.ptr(), ltyp)
+            self._copy_complex_type(rhs, var.value.ptr(), ltyp)
 
     def lower_Assign(self) -> None:
         """Lower regular assignment.
@@ -121,43 +120,41 @@ class Stmt:
         # IMPORTANT: Evaluate RHS first, then compute LHS target pointer.
         # This matches legacy codegen and ensures proper semantics for cases
         # like `c[0] = c.pop()` where RHS modifies array length.
-        # lower_value() handles storage/code -> memory copy for complex types
-        src = Expr(node.value, self.ctx).lower_value()
+        # lower() preserves location info for aliasing decisions
+        src = Expr(node.value, self.ctx).lower()
 
         # Get the destination pointer (with location info)
         dst_ptr = self._get_target_ptr(target)
 
         # For primitive word types, no overlap concern - just store
         if target_typ._is_prim_word:
-            self.ctx.ptr_store(dst_ptr, src)
+            self.ctx.ptr_store(dst_ptr, self.ctx.unwrap(src))
         else:
-            # Keep frontend simple: memory destinations are lowered through a
-            # staging copy; backend passes collapse redundant copies.
-            if dst_ptr.location == DataLocation.MEMORY:
-                self._copy_complex_type(src, dst_ptr, target_typ)
-            else:
-                self._store_complex_type(src, dst_ptr, target_typ)
+            self._copy_complex_type(src, dst_ptr, target_typ)
 
-    def _copy_complex_type(self, src: IROperand, dst_ptr: Ptr, typ) -> None:
-        """Copy complex type via temporary buffer.
+    def _copy_complex_type(self, src_vv: VyperValue, dst_ptr: Ptr, typ) -> None:
+        """Copy complex type into `dst_ptr`.
 
-        Uses a temp buffer to ensure correct semantics when src/dst may overlap.
+        Materializes `src_vv` to memory (via unwrap), then stages through a
+        temporary buffer when source and destination are both in memory
+        (potential aliasing).  When they are in different address spaces
+        no aliasing is possible and the staging copy is skipped.
         """
-        # Allocate temp buffer
-        tmp_val = self.ctx.new_temporary_value(typ)
+        src_loc = src_vv.location  # None for stack values, else DataLocation
+        src = self.ctx.unwrap(src_vv)  # always a memory ptr for complex types
 
-        # Copy src to temp (src is memory pointer)
-        self.ctx.copy_memory(tmp_val.operand, src, typ.memory_bytes_required)
+        if src_loc == DataLocation.MEMORY and dst_ptr.location == DataLocation.MEMORY:
+            # Both in memory — stage through temp for overlap safety.
+            tmp_val = self.ctx.new_temporary_value(typ)
+            self.ctx.copy_memory(tmp_val.operand, src, typ.memory_bytes_required)
+            src = tmp_val.operand
 
-        self._store_complex_type(tmp_val.operand, dst_ptr, typ)
+        self._store_complex_type(src, dst_ptr, typ)
 
     def _store_complex_type(self, src: IROperand, dst_ptr: Ptr, typ) -> None:
-        """Store complex value from memory pointer `src` into destination pointer.
+        """Store complex value from memory `src` into `dst_ptr` (no overlap guard).
 
-        IMPORTANT: This performs a direct copy with NO overlap protection.
-        The caller MUST ensure that `src` and `dst_ptr` do not alias.
-        When overlap is possible, use `_copy_complex_type` instead, which
-        stages through a temporary buffer.
+        Only called from `_copy_complex_type` which handles staging when needed.
         """
         # Copy src to dst
         if dst_ptr.location == DataLocation.STORAGE:
