@@ -125,6 +125,8 @@ def _run_global_passes(
         InvokeArgCopyForwardingPass(ir_analyses[fn], fn).run_pass()
     if not flags.disable_inlining:
         FunctionInlinerPass(ir_analyses, ctx, flags).run_pass()
+        # Inlining changes call graph/arg flows
+        ReadonlyMemoryArgsAnalysisPass(ir_analyses, ctx).run_pass()
 
 
 def run_passes_on(ctx: IRContext, flags: VenomOptimizationFlags) -> None:
