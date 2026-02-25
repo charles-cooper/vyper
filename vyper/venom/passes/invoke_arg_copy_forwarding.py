@@ -160,18 +160,17 @@ class InvokeArgCopyForwardingPass(IRPass):
         if isinstance(src, IRVariable) and src in aliases:
             return False
 
-        changed = False
         for invoke_inst, pos in rewrite_sites:
             if invoke_inst.operands[pos] == src:
                 continue
             new_operands = list(invoke_inst.operands)
             new_operands[pos] = src
             self.updater.update(invoke_inst, invoke_inst.opcode, new_operands)
-            changed = True
 
-        if changed:
-            self.updater.nop(copy_inst)
-        return changed
+        # Even when operands already point to src, this copy is redundant:
+        # all remaining uses are readonly invokes validated above.
+        self.updater.nop(copy_inst)
+        return True
 
     def _is_after(self, copy_inst: IRInstruction, use_inst: IRInstruction) -> bool:
         copy_bb = copy_inst.parent
