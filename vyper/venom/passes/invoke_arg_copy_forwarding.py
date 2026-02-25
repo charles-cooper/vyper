@@ -223,7 +223,7 @@ class InvokeArgCopyForwardingPass(IRPass):
         if not isinstance(target, IRLabel):
             return False
 
-        callee = self.function.ctx.functions.get(target.value)
+        callee = self.function.ctx.functions.get(target)
         if callee is None:
             return False
 
@@ -251,7 +251,7 @@ class InvokeArgCopyForwardingPass(IRPass):
         if not isinstance(target, IRLabel):
             return False
 
-        callee = self.function.ctx.functions.get(target.value)
+        callee = self.function.ctx.functions.get(target)
         if callee is None:
             return False
 
