@@ -19,11 +19,19 @@ class ReadonlyInvokeArgCopyForwardingPass(InvokeCopyForwardingBase):
         self._prepare()
         changed = False
 
-        for bb in self.function.get_basic_blocks():
-            for inst in list(bb.instructions):
-                if inst.opcode != "mcopy":
-                    continue
-                changed |= self._try_forward_readonly_copy(inst)
+        # Run to a local fixpoint so chained staging copies are fully
+        # collapsed in a single pass invocation.
+        while True:
+            iter_changed = False
+            for bb in self.function.get_basic_blocks():
+                for inst in list(bb.instructions):
+                    if inst.opcode != "mcopy":
+                        continue
+                    iter_changed |= self._try_forward_readonly_copy(inst)
+
+            if not iter_changed:
+                break
+            changed = True
 
         self._finish(changed)
 
