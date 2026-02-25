@@ -141,7 +141,7 @@ class Stmt:
         src_loc = src_vv.location  # None for stack values, else DataLocation
         src = self.ctx.unwrap(src_vv)  # always a memory ptr for complex types
 
-        if src_loc == DataLocation.MEMORY and dst_ptr.location == DataLocation.MEMORY:
+        if src_loc is DataLocation.MEMORY and dst_ptr.location is DataLocation.MEMORY:
             # Both in memory — stage through temp for overlap safety.
             tmp_val = self.ctx.new_temporary_value(typ)
             self.ctx.copy_memory(tmp_val.operand, src, typ.memory_bytes_required)
