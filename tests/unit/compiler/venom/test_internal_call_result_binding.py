@@ -77,7 +77,7 @@ def foo() -> uint256:
     invoke_arg = invokes[0].operands[1]
     mcopy_dst = mcopies[0].operands[2]
 
-    defs = {inst.output: inst for inst in driver_insts if inst.has_outputs}
+    defs = {inst.output: inst for inst in driver_insts if inst.num_outputs == 1}
 
     def _assign_root(op):
         while isinstance(op, IRVariable):
@@ -124,7 +124,7 @@ def foo() -> uint256:
     # Mutable callee arg should keep a by-value staging copy.
     assert len(mcopies) >= 1
 
-    defs = {inst.output: inst for inst in driver_insts if inst.has_outputs}
+    defs = {inst.output: inst for inst in driver_insts if inst.num_outputs == 1}
 
     def _assign_root(op):
         while isinstance(op, IRVariable):
