@@ -19,12 +19,13 @@ from vyper.venom.passes import (
     DFTPass,
     FixMemLocationsPass,
     FloatAllocas,
-    InvokeArgCopyForwardingPass,
+    InternalReturnCopyForwardingPass,
     LoadElimination,
     LowerDloadPass,
     MakeSSA,
     Mem2Var,
     MemMergePass,
+    ReadonlyInvokeArgCopyForwardingPass,
     PhiEliminationPass,
     RemoveUnusedVariablesPass,
     RevertToAssert,
@@ -57,8 +58,9 @@ PASSES_O2: List[PassConfig] = [
     AssignElimination,
     RevertToAssert,
     SimplifyCFGPass,
-    # Second InvokeArgCopyForwardingPass run (first is global pre-inlining in venom/__init__.py).
-    InvokeArgCopyForwardingPass,
+    # Second invoke-copy forwarding run (first is global pre-inlining in venom/__init__.py).
+    InternalReturnCopyForwardingPass,
+    ReadonlyInvokeArgCopyForwardingPass,
     # run memmerge before LowerDload
     MemMergePass,
     LowerDloadPass,
