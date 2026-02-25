@@ -80,7 +80,7 @@ class Stmt:
         if ltyp._is_prim_word:
             self.ctx.ptr_store(var.value.ptr(), self.ctx.unwrap(rhs))
         else:
-            self._copy_complex_type(rhs, var.value.ptr(), ltyp)
+            self._copy_complex_type(var.value.ptr(), rhs, ltyp)
 
     def lower_Assign(self) -> None:
         """Lower regular assignment.
@@ -130,9 +130,9 @@ class Stmt:
         if target_typ._is_prim_word:
             self.ctx.ptr_store(dst_ptr, self.ctx.unwrap(src))
         else:
-            self._copy_complex_type(src, dst_ptr, target_typ)
+            self._copy_complex_type(dst_ptr, src, target_typ)
 
-    def _copy_complex_type(self, src_vv: VyperValue, dst_ptr: Ptr, typ) -> None:
+    def _copy_complex_type(self, dst_ptr: Ptr, src_vv: VyperValue, typ) -> None:
         """Copy complex type into `dst_ptr`.
 
         Materializes `src_vv` to memory (via unwrap), then stages through a
@@ -149,14 +149,13 @@ class Stmt:
             self.ctx.copy_memory(tmp_val.operand, src, typ.memory_bytes_required)
             src = tmp_val.operand
 
-        self._store_complex_type(src, dst_ptr, typ)
+        self._store_complex_type(dst_ptr, src, typ)
 
-    def _store_complex_type(self, src: IROperand, dst_ptr: Ptr, typ) -> None:
+    def _store_complex_type(self, dst_ptr: Ptr, src: IROperand, typ) -> None:
         """Store complex value from memory `src` into `dst_ptr` (no overlap guard).
 
         Only called from `_copy_complex_type` which handles staging when needed.
         """
-        # Copy src to dst
         if dst_ptr.location == DataLocation.STORAGE:
             # DynArray special case: only copy length + actual elements, not full capacity.
             # This matches legacy codegen behavior (core.py:_dynarray_make_setter).
