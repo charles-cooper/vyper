@@ -17,15 +17,7 @@ from vyper.codegen.core import (
     calculate_type_for_external_return,
     needs_external_call_wrap,
 )
-from vyper.codegen_venom.arithmetic import (
-    safe_add,
-    safe_div,
-    safe_floordiv,
-    safe_mod,
-    safe_mul,
-    safe_pow,
-    safe_sub,
-)
+from vyper.codegen_venom.arithmetic import apply_binop
 from vyper.exceptions import (
     CompilerPanic,
     StateAccessViolation,
@@ -338,97 +330,28 @@ class Expr:
         typ = node.left._metadata["type"]
         result_typ = node._metadata["type"]
 
-        # Bitwise operations - no overflow checks needed
-        if isinstance(op, vy_ast.BitAnd):
-            return VyperValue.from_stack_op(self.builder.and_(left, right), result_typ)
-        if isinstance(op, vy_ast.BitOr):
-            return VyperValue.from_stack_op(self.builder.or_(left, right), result_typ)
-        if isinstance(op, vy_ast.BitXor):
-            return VyperValue.from_stack_op(self.builder.xor(left, right), result_typ)
-
-        # Shift operations - only 256-bit types allowed (uint256, int256, bytes32)
-        if isinstance(op, vy_ast.LShift):
+        # Defensive: shifts only valid for 256-bit types
+        if isinstance(op, (vy_ast.LShift, vy_ast.RShift)):
             is_valid = (isinstance(typ, IntegerT) and typ.bits == 256) or (
                 isinstance(typ, BytesM_T) and typ.m == 32
             )
             if not is_valid:
                 raise CompilerPanic("Shift operations require 256-bit types")
-            # shl(bits, value) - operand order is (bits, value)
-            return VyperValue.from_stack_op(self.builder.shl(right, left), result_typ)
 
-        if isinstance(op, vy_ast.RShift):
-            is_valid = (isinstance(typ, IntegerT) and typ.bits == 256) or (
-                isinstance(typ, BytesM_T) and typ.m == 32
-            )
-            if not is_valid:
-                raise CompilerPanic("Shift operations require 256-bit types")
-            # bytes32 uses unsigned shift (shr), signed integers use arithmetic shift (sar)
-            if isinstance(typ, IntegerT) and typ.is_signed:
-                return VyperValue.from_stack_op(self.builder.sar(right, left), result_typ)
-            else:
-                return VyperValue.from_stack_op(self.builder.shr(right, left), result_typ)
-
-        # Arithmetic operations with overflow checks
-        if isinstance(op, vy_ast.Add):
-            return VyperValue.from_stack_op(self._safe_add(left, right, typ), result_typ)
-
-        if isinstance(op, vy_ast.Sub):
-            return VyperValue.from_stack_op(self._safe_sub(left, right, typ), result_typ)
-
-        if isinstance(op, vy_ast.Mult):
-            return VyperValue.from_stack_op(self._safe_mul(left, right, typ, node), result_typ)
-
-        if isinstance(op, vy_ast.Div):
-            return VyperValue.from_stack_op(self._safe_div(left, right, typ, node), result_typ)
-
-        if isinstance(op, vy_ast.FloorDiv):
-            return VyperValue.from_stack_op(self._safe_floordiv(left, right, typ, node), result_typ)
-
-        if isinstance(op, vy_ast.Mod):
-            return VyperValue.from_stack_op(self._safe_mod(left, right, typ), result_typ)
-
+        # Extract pow literals for bounds checking
+        base_literal = None
+        exp_literal = None
         if isinstance(op, vy_ast.Pow):
-            return VyperValue.from_stack_op(self._safe_pow(left, right, typ, node), result_typ)
+            left_reduced = node.left.reduced()
+            right_reduced = node.right.reduced()
+            base_literal = left_reduced.value if isinstance(left_reduced, vy_ast.Int) else None
+            exp_literal = right_reduced.value if isinstance(right_reduced, vy_ast.Int) else None
 
-        raise CompilerPanic(f"Unsupported BinOp: {type(op)}")
-
-    def _safe_add(self, x: IROperand, y: IROperand, typ) -> IROperand:
-        """Add with overflow checking."""
-        return safe_add(self.builder, x, y, typ)
-
-    def _safe_sub(self, x: IROperand, y: IROperand, typ) -> IROperand:
-        """Subtract with overflow checking."""
-        return safe_sub(self.builder, x, y, typ)
-
-    def _safe_mul(self, x: IROperand, y: IROperand, typ, node: vy_ast.BinOp) -> IROperand:
-        """Multiply with overflow checking."""
-        return safe_mul(self.builder, x, y, typ)
-
-    def _safe_div(self, x: IROperand, y: IROperand, typ, node: vy_ast.BinOp) -> IROperand:
-        """Decimal division with overflow checking."""
-        return safe_div(self.builder, x, y, typ)
-
-    def _safe_floordiv(self, x: IROperand, y: IROperand, typ, node: vy_ast.BinOp) -> IROperand:
-        """Integer floor division with overflow checking."""
-        return safe_floordiv(self.builder, x, y, typ)
-
-    def _safe_mod(self, x: IROperand, y: IROperand, typ) -> IROperand:
-        """Modulo with divisor check."""
-        return safe_mod(self.builder, x, y, typ)
-
-    def _safe_pow(self, x: IROperand, y: IROperand, typ, node: vy_ast.BinOp) -> IROperand:
-        """Exponentiation with bounds checking.
-
-        Requires at least one operand to be a literal for bounds computation.
-        """
-        # Get the reduced nodes to check for literals
-        left_node = node.left.reduced()
-        right_node = node.right.reduced()
-
-        base_literal = left_node.value if isinstance(left_node, vy_ast.Int) else None
-        exp_literal = right_node.value if isinstance(right_node, vy_ast.Int) else None
-
-        return safe_pow(self.builder, x, y, typ, base_literal, exp_literal)
+        result = apply_binop(
+            self.builder, op, left, right, typ,
+            base_literal=base_literal, exp_literal=exp_literal,
+        )
+        return VyperValue.from_stack_op(result, result_typ)
 
     # === Unary Operations ===
 
