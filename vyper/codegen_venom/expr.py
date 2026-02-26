@@ -348,8 +348,7 @@ class Expr:
             exp_literal = right_reduced.value if isinstance(right_reduced, vy_ast.Int) else None
 
         result = apply_binop(
-            self.builder, op, left, right, typ,
-            base_literal=base_literal, exp_literal=exp_literal,
+            self.builder, op, left, right, typ, base_literal=base_literal, exp_literal=exp_literal
         )
         return VyperValue.from_stack_op(result, result_typ)
 

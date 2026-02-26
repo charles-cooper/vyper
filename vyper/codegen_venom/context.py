@@ -665,15 +665,13 @@ class VenomCodegenContext:
     def _load_storage_to_memory(self, slot: IROperand, buf: IROperand, word_count: int) -> None:
         """Load multi-word storage value to memory buffer."""
         self._word_copy_loop(
-            slot, buf, word_count,
-            self.builder.sload, self.builder.mstore, 1, 32, "s2m",
+            slot, buf, word_count, self.builder.sload, self.builder.mstore, 1, 32, "s2m"
         )
 
     def _store_memory_to_storage(self, buf: IROperand, slot: IROperand, word_count: int) -> None:
         """Store memory buffer to multi-word storage."""
         self._word_copy_loop(
-            buf, slot, word_count,
-            self.builder.mload, self.builder.sstore, 32, 1, "m2s",
+            buf, slot, word_count, self.builder.mload, self.builder.sstore, 32, 1, "m2s"
         )
 
     # === Transient Storage (EIP-1153, Cancun+) ===
@@ -719,15 +717,13 @@ class VenomCodegenContext:
     def _load_transient_to_memory(self, slot: IROperand, buf: IROperand, word_count: int) -> None:
         """Load multi-word transient storage value to memory buffer."""
         self._word_copy_loop(
-            slot, buf, word_count,
-            self.builder.tload, self.builder.mstore, 1, 32, "t2m",
+            slot, buf, word_count, self.builder.tload, self.builder.mstore, 1, 32, "t2m"
         )
 
     def _store_memory_to_transient(self, buf: IROperand, slot: IROperand, word_count: int) -> None:
         """Store memory buffer to multi-word transient storage."""
         self._word_copy_loop(
-            buf, slot, word_count,
-            self.builder.mload, self.builder.tstore, 32, 1, "m2t",
+            buf, slot, word_count, self.builder.mload, self.builder.tstore, 32, 1, "m2t"
         )
 
     # === Immutables ===

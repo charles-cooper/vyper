@@ -280,9 +280,7 @@ class Stmt:
             exp_literal = right_reduced.value
 
         # Apply the operation (shared with lower_BinOp via apply_binop)
-        result = apply_binop(
-            self.builder, op, left, right, target_typ, exp_literal=exp_literal,
-        )
+        result = apply_binop(self.builder, op, left, right, target_typ, exp_literal=exp_literal)
 
         # Store result back
         self.ctx.ptr_store(dst_ptr, result)
